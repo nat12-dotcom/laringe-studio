@@ -26,18 +26,19 @@ Todo el audio se procesa en tu navegador; nada se sube a ningún servidor.
 
 ## Cómo usarlo
 
-El micrófono solo funciona en `https://` o en `localhost`.
+Laringe Studio es una **app instalable**: se abre desde el navegador una vez, se instala con un clic y después funciona como cualquier app, incluso sin internet.
 
-**Opción A: GitHub Pages**
-En el repositorio: *Settings → Pages → Build and deployment → Source: Deploy from a branch → `main` / `(root)`*. En un minuto estará en `https://<tu-usuario>.github.io/laringe-studio/`.
+**1. Publicarla (solo la primera vez)**
+En el repositorio: *Settings → Pages → Source: Deploy from a branch → `main` / `(root)` → Save*. En un par de minutos estará en `https://nat12-dotcom.github.io/laringe-studio/`.
 
-**Opción B: en tu computadora**
+**2. Instalarla**
+- **Computadora (Chrome o Edge):** abre el enlace y pulsa **Instalar app** (arriba a la derecha de la página, o el icono de instalar en la barra de direcciones).
+- **Android (Chrome):** abre el enlace y pulsa **Instalar app**, o menú ⋮ → *Instalar aplicación*.
+- **iPhone / iPad (Safari):** abre el enlace, pulsa *Compartir* → *Añadir a pantalla de inicio*.
 
-```bash
-python3 -m http.server 8000
-```
+Queda con su icono, se abre en su propia ventana, usa tu micrófono y funciona sin conexión. Cuando hay internet, se actualiza sola con las mejoras que se suban al repositorio.
 
-y abre `http://localhost:8000`.
+**Alternativa sin instalar:** en una copia descargada del repositorio, ejecuta `python3 -m http.server 8000` en la carpeta y abre `http://localhost:8000`.
 
 ## Consejos para un buen coro
 
@@ -56,7 +57,9 @@ js/analysis.js    tono (YIN), formantes (LPC), vocal, tipo de voz, huella vocal
 js/voice.js       muestra, TD-PSOLA, desplazamiento de formantes, voz de ejemplo
 js/head.js        dibujo de la cabeza y la glotis
 js/music.js       composición, instrumentos sintetizados, render y exportación WAV
-js/app.js         flujo de la app y animación
+js/app.js         flujo de la app, animación e instalación
+sw.js             modo sin conexión
+manifest.webmanifest, icons/   datos e iconos de la app instalable
 ```
 
 ## Límites

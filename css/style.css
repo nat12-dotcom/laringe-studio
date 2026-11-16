@@ -42,6 +42,8 @@ b { color: #fff; }
 .logo { width: 42px; height: 42px; color: var(--amber); flex: none; }
 .brand h1 { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em; }
 .brand p { color: var(--muted); font-size: 0.92rem; }
+.top-right { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.install-hint { margin-top: 6px; }
 .src-pill {
   font-size: 0.85rem; color: var(--muted); border: 1px solid var(--line);
   border-radius: 999px; padding: 6px 14px; background: var(--panel);

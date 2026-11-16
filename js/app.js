@@ -778,7 +778,39 @@
     window.addEventListener('resize', () => { drawRange(); drawWave(); });
   }
 
+  // ---------- app instalable ----------
+  function setupInstall() {
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      navigator.serviceWorker.register('sw.js').catch(() => { /* sin modo offline */ });
+    }
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+    if (standalone) return;
+    let deferred = null;
+    const btn = $('#btnInstall');
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      deferred = e;
+      btn.hidden = false;
+    });
+    btn.addEventListener('click', async () => {
+      if (!deferred) return;
+      deferred.prompt();
+      await deferred.userChoice.catch(() => null);
+      deferred = null;
+      btn.hidden = true;
+    });
+    window.addEventListener('appinstalled', () => { btn.hidden = true; $('#installHint').hidden = true; });
+    // iPhone/iPad no muestran el botón: se explica cómo hacerlo
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (ios) {
+      const hint = $('#installHint');
+      hint.textContent = 'Para instalarla en tu iPhone o iPad: pulsa Compartir y luego “Añadir a pantalla de inicio”.';
+      hint.hidden = false;
+    }
+  }
+
   function init() {
+    setupInstall();
     renderParts();
     renderStyles();
     renderKeys();

@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Laringe Studio</title>
 <meta name="description" content="Simulador vocal: analiza tu voz, la modula en un coro SATB y genera música para tu videojuego.">
+<meta name="theme-color" content="#0d1020">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Laringe">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -19,7 +26,10 @@
       <p>Tu voz, convertida en un coro para la música de tu juego</p>
     </div>
   </div>
-  <div class="src-pill" title="Voz con la que se construye el coro">Voz del coro: <b id="srcName">Voz de ejemplo</b></div>
+  <div class="top-right">
+    <button id="btnInstall" class="primary" hidden>Instalar app</button>
+    <div class="src-pill" title="Voz con la que se construye el coro">Voz del coro: <b id="srcName">Voz de ejemplo</b></div>
+  </div>
 </header>
 
 <main class="layout">
@@ -169,7 +179,8 @@
 </main>
 
 <footer class="foot">
-  <p>Todo el audio se procesa en tu navegador; nada se sube a ningún servidor. Los perfiles se guardan solo en este navegador.</p>
+  <p>Todo el audio se procesa en tu dispositivo; nada se sube a ningún servidor. Los perfiles se guardan solo en este dispositivo.</p>
+  <p id="installHint" class="install-hint" hidden></p>
 </footer>
 
 <script src="js/analysis.js"></script>
