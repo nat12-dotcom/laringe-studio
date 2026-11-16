@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Laringe Studio</title>
+<meta name="description" content="Simulador vocal: analiza tu voz, la modula en un coro SATB y genera música para tu videojuego.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><path d="M8 20c0-7 5-12 12-12s12 5 12 12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M14 20q6 9 12 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="20" cy="30" r="3" fill="currentColor"/></svg>
+    <div>
+      <h1>Laringe Studio</h1>
+      <p>Tu voz, convertida en un coro para la música de tu juego</p>
+    </div>
+  </div>
+  <div class="src-pill" title="Voz con la que se construye el coro">Voz del coro: <b id="srcName">Voz de ejemplo</b></div>
+</header>
+
+<main class="layout">
+  <section class="sim panel" aria-label="Simulador de cabeza">
+    <div class="sim-head">
+      <canvas id="head" aria-label="Corte sagital de una cabeza humana mostrando el tracto vocal"></canvas>
+      <div class="badge" id="modeBadge"><i></i><span>En reposo</span></div>
+    </div>
+    <div class="readouts">
+      <div class="ro"><span>Tono</span><b id="roHz">—</b></div>
+      <div class="ro"><span>Nota</span><b id="roNote">—</b></div>
+      <div class="ro"><span>Vocal</span><b id="roVowel">—</b></div>
+      <div class="ro"><span>F1 · F2</span><b id="roF">—</b></div>
+    </div>
+    <div class="meter" aria-hidden="true"><div id="meterFill"></div></div>
+    <div class="sim-bottom">
+      <figure class="glottis">
+        <canvas id="glottis" width="320" height="320"></canvas>
+        <figcaption>Glotis (vista superior)</figcaption>
+      </figure>
+      <figure class="pitch">
+        <canvas id="pitch"></canvas>
+        <figcaption>Historial de tono</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <div class="steps">
+    <section class="panel step">
+      <header><span class="num">1</span><h2>Fuente de voz</h2></header>
+      <p>Activa el micrófono para que la cabeza siga tu voz en tiempo real. Si no tienes micrófono, sube una grabación tuya.</p>
+      <div class="row">
+        <button id="btnMic" class="primary">Activar micrófono</button>
+        <label class="btn" for="fileIn" tabindex="0">Subir audio</label>
+        <input type="file" id="fileIn" accept="audio/*" hidden>
+        <button id="btnExample" class="ghost">Volver a la voz de ejemplo</button>
+      </div>
+      <p class="status" id="micStatus">Micrófono apagado.</p>
+    </section>
+
+    <section class="panel step">
+      <header><span class="num">2</span><h2>Muestra para el coro</h2></header>
+      <p>Canta una <b>“aaa”</b> (o “ooo”) sostenida y estable durante 3 segundos, en una nota cómoda. Con esa muestra se crean todas las voces.</p>
+      <div class="row">
+        <button id="btnRecSample" class="primary rec">Grabar muestra · 3 s</button>
+        <button id="btnPlaySample">Escuchar muestra</button>
+      </div>
+      <div class="prog" id="recProg" hidden><div></div><span></span></div>
+      <dl class="facts" id="sampleFacts"></dl>
+    </section>
+
+    <section class="panel step">
+      <header><span class="num">3</span><h2>Perfil y reconocimiento</h2></header>
+      <p>El test de rango mide tu nota más grave y más aguda y clasifica tu tipo de voz. Guarda el perfil para que la app reconozca tu voz después.</p>
+      <div class="row">
+        <button id="btnRange">Test de rango · 8 s</button>
+        <button id="btnWho">¿Quién canta? · 3 s</button>
+      </div>
+      <p class="hint">Durante el test, desliza la voz desde tu nota más grave hasta la más aguda.</p>
+      <div class="range-card">
+        <canvas id="rangeCv"></canvas>
+        <p id="rangeTxt">Aún no hay test de rango. Se muestran los rangos típicos de cada tipo de voz.</p>
+      </div>
+      <div class="row">
+        <input id="profName" type="text" placeholder="Nombre del perfil (ej. Nat)" maxlength="24" aria-label="Nombre del perfil">
+        <button id="btnSave">Guardar perfil</button>
+      </div>
+      <ul id="profList" class="plist"></ul>
+      <div id="whoOut" class="who" hidden></div>
+    </section>
+
+    <section class="panel step">
+      <header><span class="num">4</span><h2>Voces del coro</h2></header>
+      <p>Tu muestra se modula en cuatro voces. Cada una cambia de nota y desplaza los formantes para sonar más aguda o más grave, sin perder tu timbre.</p>
+      <div class="parts" id="parts"></div>
+      <div class="controls">
+        <label class="slider" for="ens">Cantantes por voz <output id="ensOut">3</output>
+          <input type="range" id="ens" min="1" max="4" value="3">
+        </label>
+        <label class="check"><input type="checkbox" id="keepTimbre"> Mantener mi timbre exacto en todas las voces</label>
+      </div>
+      <div class="row">
+        <button id="btnChord">Escuchar acorde del coro</button>
+      </div>
+    </section>
+
+    <section class="panel step">
+      <header><span class="num">5</span><h2>Generar música</h2></header>
+      <p>Elige el estilo de tu juego. Cada pieza se compone nueva y termina en un loop perfecto, listo para sonar en bucle.</p>
+      <div class="styles" id="styles" role="radiogroup" aria-label="Estilo musical"></div>
+      <div class="opts">
+        <label for="keySel">Tonalidad
+          <select id="keySel"></select>
+        </label>
+        <label for="barsSel">Duración
+          <select id="barsSel">
+            <option value="8">8 compases</option>
+            <option value="16" selected>16 compases</option>
+            <option value="32">32 compases</option>
+          </select>
+        </label>
+        <label for="bpm">Tempo <output id="bpmOut">auto</output>
+          <input type="range" id="bpm" min="0" max="180" step="2" value="0">
+        </label>
+        <label for="seed">Variación
+          <span class="seed"><input type="number" id="seed" min="1" max="99999" value="7"><button id="btnDice" class="icon" title="Otra variación" aria-label="Otra variación">⟳</button></span>
+        </label>
+      </div>
+      <div class="opts mix">
+        <label for="mixChoir">Volumen del coro <output id="mixChoirOut">100%</output>
+          <input type="range" id="mixChoir" min="0" max="150" value="100">
+        </label>
+        <label for="mixMusic">Volumen de la orquesta <output id="mixMusicOut">100%</output>
+          <input type="range" id="mixMusic" min="0" max="150" value="100">
+        </label>
+      </div>
+      <div class="row">
+        <button id="btnGen" class="primary big">Generar música</button>
+      </div>
+      <div class="prog" id="genProg" hidden><div></div><span></span></div>
+      <div class="player" id="player" hidden>
+        <div class="player-top">
+          <button id="btnPlay" class="play" aria-label="Reproducir">▶</button>
+          <div id="trackInfo" class="tinfo"></div>
+        </div>
+        <canvas id="wave"></canvas>
+        <div class="row">
+          <button id="btnDlMix">Descargar WAV · mezcla</button>
+          <button id="btnDlChoir">Descargar WAV · solo coro</button>
+          <button id="btnDlMusic">Descargar WAV · sin coro</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="foot">
+  <p>Todo el audio se procesa en tu navegador; nada se sube a ningún servidor. Los perfiles se guardan solo en este navegador.</p>
+</footer>
+
+<script src="js/analysis.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/head.js"></script>
+<script src="js/music.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
