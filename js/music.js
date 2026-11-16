@@ -95,8 +95,8 @@ const Music = (() => {
     const progBridge = others.length > 1 ? others.find(x => x !== progChorus) : [prog[2] ?? 5, prog[3] ?? 3, prog[0], prog[1] ?? 4];
     let sections;
     if (o.song) {
-      const k = Math.max(1, Math.round((o.song / barDur - 8) / 24));
-      const L = 4 * k;
+      // largo de cada parte (en compases pares) para acercarse a la duración pedida
+      const L = Math.max(4, 2 * Math.round((o.song / barDur - 8) / 6 / 2));
       sections = [['intro', 'Intro', 4, 0, prog], ['verse', 'Verso 1', L, 1, prog], ['chorus', 'Estribillo', L, 2, progChorus],
         ['verse', 'Verso 2', L, 1, prog], ['chorus', 'Estribillo', L, 2, progChorus], ['bridge', 'Puente', L, 1, progBridge],
         ['chorus', 'Estribillo final', L, 2, progChorus], ['outro', 'Final', 4, 0, progChorus]];
@@ -355,16 +355,46 @@ const Music = (() => {
     return { k, stretch: Math.min(1, k * barDur / ph.duration) };
   }
 
+  // Encaja cada sílaba en el ritmo: su inicio se mueve a la corchea más cercana
+  // (si está cerca), sin deformar demasiado la frase.
+  function rhythmKnots(ph, stretch, beat) {
+    const sr = ph.sr, dur = (ph.end - ph.start) / sr, grid = beat / 2;
+    const ks = [];
+    for (const seg of ph.segments) {
+      const sSec = (seg.a - ph.start) / sr, lin = sSec * stretch;
+      const q = Math.round(lin / grid) * grid;
+      const o = Math.abs(q - lin) <= 0.35 * grid ? q : lin;
+      if (ks.length) {
+        const [ps, po] = ks[ks.length - 1];
+        const slope = (o - po) / (sSec - ps);
+        if (sSec - ps < 0.04 || slope < stretch * 0.6 || slope > stretch * 1.7) continue;
+      }
+      ks.push([sSec, o]);
+    }
+    if (!ks.length) return [[0, 0], [dur, dur * stretch]];
+    // la entrada (antes de la primera sílaba) se conserva tal cual: el canto empieza justo en el tiempo
+    if (ks[0][0] > 1e-3) ks.unshift([0, ks[0][1] - ks[0][0]]);
+    const [sl, ol] = ks[ks.length - 1];
+    if (dur - sl > 1e-3) ks.push([dur, ol + (dur - sl) * stretch]);
+    return ks;
+  }
+  function mapOut(ks, sSec) {
+    let k = 1;
+    while (k < ks.length - 1 && ks[k][0] < sSec) k++;
+    const [s0, o0] = ks[k - 1], [s1, o1] = ks[k];
+    return s1 > s0 ? o0 + (sSec - s0) * (o1 - o0) / (s1 - s0) : o0;
+  }
+
   // Afina cada sílaba a la tonalidad y a los acordes de los compases donde cae
-  function retune(score, ph, bar0, k, stretch) {
+  function retune(score, ph, bar0, k, stretch, knots) {
     const { barDur, bars } = score;
     const scaleSet = MODES[score.mode].map(x => (x + score.root) % 12);
     const allScale = [];
     for (let m = 24; m <= 100; m++) if (scaleSet.includes(pc(m))) allScale.push(m);
     const lead = [], up = [], low = [];
     ph.segments.forEach(seg => {
-      const tOut = (seg.a - ph.start) / ph.sr * stretch;
-      const bar = Math.min(bars - 1, bar0 + Math.min(k - 1, Math.floor(tOut / barDur)));
+      const tOut = knots ? mapOut(knots, (seg.a - ph.start) / ph.sr) : (seg.a - ph.start) / ph.sr * stretch;
+      const bar = Math.min(bars - 1, bar0 + Math.max(0, Math.min(k - 1, Math.floor(tOut / barDur))));
       const ch = score.chords[bar];
       const segDur = (seg.b - seg.a) / ph.sr * stretch;
       const chordNear = allScale.filter(x => ch.pcs.includes(pc(x)) && Math.abs(x - seg.midi) <= 1.6);
@@ -410,10 +440,12 @@ const Music = (() => {
     for (const p of placements) {
       for (let j = 0; j < p.k; j++) busy.add(p.bar + j);
       const ph = phrases[p.i];
-      p.tunes = retune(score, ph, p.bar, p.k, p.stretch);
-      ph.segments.forEach((seg, j) => events.push({
-        t: (score.offset || 0) + p.bar * barDur + (seg.a - ph.start) / ph.sr * p.stretch, dur: (seg.b - seg.a) / ph.sr * p.stretch, midi: p.tunes.lead[j],
-      }));
+      p.knots = rhythmKnots(ph, p.stretch, score.beat);
+      p.tunes = retune(score, ph, p.bar, p.k, p.stretch, p.knots);
+      ph.segments.forEach((seg, j) => {
+        const a = mapOut(p.knots, (seg.a - ph.start) / ph.sr), b = mapOut(p.knots, (seg.b - ph.start) / ph.sr);
+        events.push({ t: (score.offset || 0) + p.bar * barDur + a, dur: Math.max(0.05, b - a), midi: p.tunes.lead[j] });
+      });
     }
     return { placements, busy, events };
   }
@@ -437,12 +469,19 @@ const Music = (() => {
     const mk = (d, rate) => { const ab = new AudioBuffer({ length: d.length, numberOfChannels: 1, sampleRate: rate }); ab.copyToChannel(d, 0); return ab; };
     for (let j = 0; j < vp.placements.length; j++) {
       const p = vp.placements[j], ph = phrases[p.i];
-      const key = [p.i, p.stretch.toFixed(3), p.tunes.lead.join(','), p.harm].join('|');
+      const key = [p.i, p.stretch.toFixed(3), p.knots.map(x => x[1].toFixed(3)).join(','), p.tunes.lead.join(','), p.harm].join('|');
       if (!cache.has(key)) {
-        const b = { lead: mk(Voice.renderPhrase(ph, { stretch: p.stretch, targets: p.tunes.lead }), ph.sr) };
+        const base = { stretch: p.stretch, knots: p.knots };
+        const lead = Voice.renderPhrase(ph, { ...base, targets: p.tunes.lead });
+        // volumen parejo entre frases: se iguala la energía de la parte cantada
+        let e = 0, c = 0, pk = 0;
+        for (let i = 0; i < lead.length; i++) { const a = Math.abs(lead[i]); if (a > pk) pk = a; if (a > 0.02) { e += a * a; c++; } }
+        const g = Math.min(0.12 / Math.sqrt(e / Math.max(1, c) || 1e-6), 0.95 / (pk || 1));
+        const fin = d => { for (let i = 0; i < d.length; i++) d[i] *= g; const ab = mk(d, ph.sr); ab.offsetSec = d.offset || 0; return ab; };
+        const b = { lead: fin(lead) };
         if (flags.phraseHarm && p.harm) {
-          b.up = mk(Voice.renderPhrase(ph, { stretch: p.stretch, targets: p.tunes.up, formant: 1.07, unvoicedGain: 0.3, vibrato: 0.009 }), ph.sr);
-          b.low = mk(Voice.renderPhrase(ph, { stretch: p.stretch, targets: p.tunes.low, formant: 0.93, unvoicedGain: 0.3, vibrato: 0.008 }), ph.sr);
+          b.up = fin(Voice.renderPhrase(ph, { ...base, targets: p.tunes.up, formant: 1.07, unvoicedGain: 0.3, vibrato: 0.009 }));
+          b.low = fin(Voice.renderPhrase(ph, { ...base, targets: p.tunes.low, formant: 0.93, unvoicedGain: 0.3, vibrato: 0.008 }));
         }
         cache.set(key, b);
       }
@@ -462,8 +501,44 @@ const Music = (() => {
         const g = ctx.createGain(); g.gain.value = gv;
         const pan = ctx.createStereoPanner(); pan.pan.value = panV;
         src.connect(g).connect(pan).connect(dest);
-        src.start(offset + p.bar * barDur + (name === 'lead' ? 0 : 0.012));
+        const at = offset + p.bar * barDur + (buf.offsetSec || 0) + (name === 'lead' ? 0 : 0.012);
+        if (at >= 0) src.start(at); else src.start(0, -at);
       }
+    }
+  }
+
+  // Cadena de voz de estudio: graves fuera, menos "barro", más presencia y aire,
+  // compresor, eco a corchea con puntillo y reverberación.
+  function vocalChain(ctx, master, reverb, gain, beat) {
+    const input = ctx.createGain(); input.gain.value = gain;
+    const eq = (type, f, g, q = 0.9) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.gain.value = g; b.Q.value = q; return b; };
+    const hp = eq('highpass', 95, 0, 0.7), mud = eq('peaking', 300, -2.5, 1), pres = eq('peaking', 3200, 3, 0.9), air = eq('highshelf', 9000, 2);
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -22; comp.ratio.value = 3.5; comp.attack.value = 0.005; comp.release.value = 0.12; comp.knee.value = 6;
+    const make = ctx.createGain(); make.gain.value = 1.45;
+    input.connect(hp).connect(mud).connect(pres).connect(air).connect(comp).connect(make).connect(master);
+    const rs = ctx.createGain(); rs.gain.value = 0.22; make.connect(rs).connect(reverb);
+    const dl = ctx.createDelay(2); dl.delayTime.value = Math.min(1.9, beat * 0.75);
+    const ds = ctx.createGain(); ds.gain.value = 0.12;
+    const fb = ctx.createGain(); fb.gain.value = 0.28;
+    const lp = eq('lowpass', 3500, 0, 0.7);
+    make.connect(ds).connect(dl).connect(lp).connect(fb).connect(dl);
+    lp.connect(master);
+    return input;
+  }
+
+  // La música baja un poco mientras cantas (para que tu voz se entienda)
+  function duck(param, base, events, depth) {
+    const iv = [];
+    for (const e of [...events].sort((a, b) => a.t - b.t)) {
+      const a = e.t, b = e.t + e.dur;
+      if (iv.length && a - iv[iv.length - 1][1] < 0.3) iv[iv.length - 1][1] = Math.max(iv[iv.length - 1][1], b);
+      else iv.push([a, b]);
+    }
+    param.setValueAtTime(base, 0);
+    for (const [a, b] of iv) {
+      param.setTargetAtTime(base * depth, Math.max(0, a - 0.08), 0.05);
+      param.setTargetAtTime(base, b + 0.1, 0.18);
     }
   }
 
@@ -518,17 +593,10 @@ const Music = (() => {
     if (flags.music) {
       const src = ctx.createBufferSource(); src.buffer = instr;
       const g = ctx.createGain(); g.gain.value = 0.85 * flags.musicGain;
+      if (vp && flags.choir) duck(g.gain, 0.85 * flags.musicGain, vp.events, 0.7);
       src.connect(g).connect(master); src.start(0);
     }
-    if (vp) {
-      // cadena de voz: filtro de graves, compresor y un poco de reverberación
-      const vbus = ctx.createGain(); vbus.gain.value = flags.choirGain;
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 110;
-      const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 4;
-      vbus.connect(hp).connect(comp).connect(master);
-      const vs = ctx.createGain(); vs.gain.value = 0.25; comp.connect(vs).connect(reverb);
-      scheduleVocals(ctx, vp, vbus, offset, barDur);
-    }
+    if (vp) scheduleVocals(ctx, vp, vocalChain(ctx, master, reverb, flags.choirGain, score.beat), offset, barDur);
     if (notes.length) {
       const cb = ctx.createGain(); cb.gain.value = 0.55 * flags.choirGain;
       cb.connect(master);
@@ -724,10 +792,9 @@ const Music = (() => {
 
     // tu voz: voz principal + armonías
     if (vp) {
-      const vbus = ctx.createGain(); vbus.gain.value = flags.choirGain;
-      vbus.connect(master);
-      const vs = ctx.createGain(); vs.gain.value = 0.28; vbus.connect(vs).connect(reverb);
-      scheduleVocals(ctx, vp, vbus, 0, barDur);
+      scheduleVocals(ctx, vp, vocalChain(ctx, master, reverb, flags.choirGain, score.beat), 0, barDur);
+      duck(musicBus.gain, flags.musicGain, vp.events, 0.75);
+      duck(choirBus.gain, flags.choirGain, vp.events, 0.8);
     }
 
     onProgress && onProgress(0.55, 'Mezclando la canción…');

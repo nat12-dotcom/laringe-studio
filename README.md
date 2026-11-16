@@ -29,6 +29,12 @@ Todo se descarga en **WAV**: mezcla, solo voces, o solo orquesta / instrumental.
 
 Todo el audio se procesa en tu navegador; nada se sube a ningún servidor.
 
+## Calidad de sonido
+
+- **Grabación:** se graba en un hilo de audio propio (sin cortes), sin el procesado automático del navegador que deforma la voz cantada. Después se quitan los graves molestos (golpes, zumbido) y el ruido de fondo, aprendido de tus pausas. La app avisa si la grabación saturó o quedó muy baja.
+- **Modulación:** los ciclos de las cuerdas vocales se siguen comparando la forma de onda de cada ciclo con el anterior (voz más limpia, menos áspera), y los cambios de nota tienen un portamento natural de unos 30 ms.
+- **Mezcla:** cada sílaba se encaja en la corchea más cercana; la voz pasa por una cadena de estudio (filtro de graves, ecualización de presencia y aire, compresor, eco a corchea con puntillo y reverberación); la música baja unos 3 dB mientras cantas, y todas las frases se igualan en volumen.
+
 ## Cómo usarlo
 
 Laringe Studio es una **app instalable**: se abre desde el navegador una vez, se instala con un clic y después funciona como cualquier app, incluso sin internet.

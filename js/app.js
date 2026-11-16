@@ -44,17 +44,15 @@
       return false;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      // sin procesado del navegador (cancelación de eco, supresión de ruido, ganancia automática):
+      // deforman la voz cantada. La limpieza la hace la app después, con más cuidado.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1, sampleRate: { ideal: 48000 } } });
       S.mic = stream;
       S.micSrc = ctx.createMediaStreamSource(stream);
       S.analyser = ctx.createAnalyser();
       S.analyser.fftSize = 2048;
       S.micSrc.connect(S.analyser);
-      S.proc = ctx.createScriptProcessor(4096, 1, 1);
-      S.micSrc.connect(S.proc);
-      const z = ctx.createGain(); z.gain.value = 0;
-      S.proc.connect(z).connect(ctx.destination);
-      S.proc.onaudioprocess = e => { if (S.recBufs) S.recBufs.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+      await setupRecorder(ctx);
       $('#btnMic').textContent = 'Apagar micrófono';
       status($('#micStatus'), 'Micrófono activo: canta o habla y mira la cabeza.', 'ok');
       setBadge('live', 'Micrófono en vivo');
@@ -64,10 +62,63 @@
       return false;
     }
   }
+
+  // Grabador en un hilo de audio propio (AudioWorklet): no se corta aunque la pantalla
+  // esté ocupada. Si el navegador no lo admite, se usa el método clásico.
+  const WORKLET_SRC = `class LaringeRec extends AudioWorkletProcessor {
+    constructor() { super(); this.on = false; this.buf = new Float32Array(2048); this.n = 0; this.pk = 0;
+      this.port.onmessage = e => { this.on = e.data; this.n = 0; }; }
+    process(inputs) {
+      const ch = inputs[0] && inputs[0][0];
+      if (ch) for (let i = 0; i < ch.length; i++) {
+        const v = ch[i], a = v < 0 ? -v : v; if (a > this.pk) this.pk = a;
+        if (this.on) { this.buf[this.n++] = v; if (this.n === 2048) { this.port.postMessage({ d: this.buf.slice(0), pk: this.pk }); this.n = 0; this.pk = 0; } }
+      }
+      if (!this.on && this.pk > 0) { this.port.postMessage({ pk: this.pk }); this.pk = 0; }
+      return true;
+    }
+  }
+  registerProcessor('laringe-rec', LaringeRec);`;
+
+  async function setupRecorder(ctx) {
+    S.recPeak = 0;
+    const onChunk = (d, pk) => {
+      if (pk > S.recPeak) S.recPeak = pk;
+      if (pk >= 0.985) S.clipAt = performance.now();
+      if (d && S.recBufs) S.recBufs.push(d);
+    };
+    if (ctx.audioWorklet && window.AudioWorkletNode) {
+      try {
+        if (!S.workletReady) {
+          const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
+          await ctx.audioWorklet.addModule(url);
+          S.workletReady = true;
+        }
+        const node = new AudioWorkletNode(ctx, 'laringe-rec', { numberOfInputs: 1, numberOfOutputs: 0 });
+        node.port.onmessage = e => onChunk(e.data.d, e.data.pk);
+        S.micSrc.connect(node);
+        S.proc = node;
+        S.recNode = node;
+        return;
+      } catch (e) { /* se usa el método clásico */ }
+    }
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    S.micSrc.connect(proc);
+    const z = ctx.createGain(); z.gain.value = 0;
+    proc.connect(z).connect(ctx.destination);
+    proc.onaudioprocess = e => {
+      const d = e.inputBuffer.getChannelData(0);
+      let pk = 0; for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > pk) pk = a; }
+      onChunk(S.recBufs ? new Float32Array(d) : null, pk);
+    };
+    S.proc = proc;
+    S.recNode = null;
+  }
+
   function stopMic() {
     if (!S.mic) return;
     S.mic.getTracks().forEach(t => t.stop());
-    try { S.micSrc.disconnect(); S.proc.disconnect(); } catch (e) { /* ya desconectado */ }
+    try { S.micSrc.disconnect(); if (S.proc) S.proc.disconnect(); } catch (e) { /* ya desconectado */ }
     S.mic = S.micSrc = S.analyser = S.proc = null;
     $('#btnMic').textContent = 'Activar micrófono';
     status($('#micStatus'), 'Micrófono apagado.');
@@ -79,16 +130,20 @@
     const bar = progEl.querySelector('div'), txt = progEl.querySelector('span');
     return new Promise(res => {
       S.recBufs = [];
+      S.recPeak = 0; S.clipAt = 0;
+      if (S.recNode) S.recNode.port.postMessage(true);
       const t0 = performance.now();
       const iv = setInterval(() => {
         const el = (performance.now() - t0) / 1000;
         bar.style.width = Math.min(100, el / sec * 100) + '%';
-        txt.textContent = sec > 30
+        const warn = performance.now() - (S.clipAt || 0) < 1500 ? ' · ¡muy fuerte! aléjate un poco del micrófono' : '';
+        txt.textContent = (sec > 30
           ? `${label} · ${fmtTime(el)} de ${fmtTime(sec)} máx. — pulsa “Terminar” al acabar`
-          : `${label} · ${Math.max(0, sec - el).toFixed(1)} s`;
+          : `${label} · ${Math.max(0, sec - el).toFixed(1)} s`) + warn;
         if (el >= sec || (S.stopRec && el > 1)) {
           clearInterval(iv);
           S.stopRec = false;
+          if (S.recNode) S.recNode.port.postMessage(false);
           const bufs = S.recBufs; S.recBufs = null;
           const out = new Float32Array(bufs.reduce((n, b) => n + b.length, 0));
           let o = 0; bufs.forEach(b => { out.set(b, o); o += b.length; });
@@ -148,7 +203,8 @@
     await countdown(prog, 'Grabando');
     const data = await record(3, prog, 'Canta “aaa”');
     try {
-      const sm = Voice.makeSample(data, S.ctx.sampleRate, 'Tu voz (nota sostenida)');
+      const clean = (await Voice.prepareRecording(data, S.ctx.sampleRate)).data;
+      const sm = Voice.makeSample(clean, S.ctx.sampleRate, 'Tu voz (nota sostenida)');
       sm.mine = true;
       setSample(sm);
       renderPhraseFacts();
@@ -188,7 +244,9 @@
 
   // Tu grabación (larga o corta) se separa en frases y se prepara para la canción
   async function setVoiceRecording(raw, sr, label, onP) {
-    const res = await Voice.splitPhrases(raw, sr, onP);
+    const prep = await Voice.prepareRecording(raw, sr, onP);
+    S.recQuality = recordingAdvice(prep);
+    const res = await Voice.splitPhrases(prep.data, sr, onP);
     if (!res.phrases.length) throw new Error('sin-nota');
     S.phrases = res.phrases;
     // audio limpio para escuchar: de la primera a la última frase
@@ -219,6 +277,14 @@
     renderPhraseFacts();
   }
 
+  // Consejos según cómo quedó la grabación
+  function recordingAdvice(prep) {
+    if (prep.clipped > 0.0005) return { kind: 'err', text: 'La grabación saturó (sonó demasiado fuerte para el micrófono). Para mejor calidad, aléjate un palmo o baja el volumen de entrada del micrófono y vuelve a grabar.' };
+    if (prep.peak < 0.08) return { kind: 'err', text: 'La grabación quedó muy baja. Acércate al micrófono o sube su volumen de entrada para que tu voz se oiga más clara.' };
+    if (prep.noiseFound) return { kind: 'ok', text: 'Se redujo el ruido de fondo de la grabación.' };
+    return { kind: 'ok', text: 'Grabación limpia.' };
+  }
+
   function renderPhraseFacts() {
     const ps = S.phrases;
     if (!ps.length) { $('#phraseFacts').innerHTML = ''; return; }
@@ -229,6 +295,7 @@
       ['Canto grabado', fmtTime(sung)],
       ['Tu rango', `${A.noteName(lo)} – ${A.noteName(hi)}`],
       ['Coro de fondo', S.sample ? S.sample.label : '—'],
+      ['Calidad', S.recQuality ? (S.recQuality.kind === 'ok' ? (S.recQuality.text.startsWith('Se redujo') ? 'Ruido reducido' : 'Limpia') : 'Revisa el aviso') : '—'],
     ];
     $('#phraseFacts').innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('');
   }
@@ -247,7 +314,8 @@
       $('#recogOut').hidden = false;
       $('#recogOut').innerHTML = recognizeHtml(S.profile);
       drawRange();
-      status($('#micStatus'), `Listo: ${S.phrases.length} frase${S.phrases.length === 1 ? '' : 's'}. Elige un estilo en el paso 5 y genera tu canción.`, 'ok');
+      const q = S.recQuality;
+      status($('#micStatus'), q && q.kind === 'err' ? q.text : `Listo: ${S.phrases.length} frase${S.phrases.length === 1 ? '' : 's'}. ${q ? q.text + ' ' : ''}Elige un estilo en el paso 5 o haz un remix en el paso 6.`, q && q.kind === 'err' ? 'err' : 'ok');
     } catch (e) {
       status($('#micStatus'), phraseError(e), 'err');
     }

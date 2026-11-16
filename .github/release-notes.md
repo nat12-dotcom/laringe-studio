@@ -1,6 +1,12 @@
-## Laringe Studio 1.1
+## Laringe Studio 1.2
 
 ### Novedades
+
+- **Grabación más limpia:** reducción de ruido de fondo, filtro de golpes y zumbidos, grabación sin cortes y avisos si la voz satura o queda baja.
+- **Voz modulada más natural:** menos aspereza y transiciones suaves entre notas.
+- **Mezcla de estudio:** sílabas al ritmo, ecualización, compresor, eco y reverberación en tu voz, la música baja un poco cuando cantas y todas las frases suenan al mismo volumen.
+
+### En la versión 1.1
 
 - **Canciones de 2 o 3 minutos** con estructura completa (intro, versos, estribillos, puente y final).
 - **Grabación larga** de hasta 4 minutos: la app separa tus frases y las reparte por la canción.
