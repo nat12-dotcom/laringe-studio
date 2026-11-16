@@ -187,7 +187,10 @@ input[type=range] { width: 100%; accent-color: var(--amber); }
 .style[aria-checked="true"] { border-color: var(--amber); background: linear-gradient(160deg, rgba(255,179,71,0.14), var(--panel-2) 60%); }
 .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .opts select, .opts input[type=number] { width: 100%; }
-.seed { display: flex; gap: 6px; }
+.seed { display: flex; gap: 6px; align-items: center; }
+.field { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+.field output { font: 600 0.9rem var(--f-mono); color: var(--text); min-width: 76px; text-align: center; }
+#rxControls { display: grid; gap: 10px; }
 .seed input { flex: 1; }
 
 .player { display: grid; gap: 10px; background: var(--panel-2); border-radius: 12px; padding: 12px; }

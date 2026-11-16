@@ -11,23 +11,21 @@ Ve a **[Releases](https://github.com/nat12-dotcom/laringe-studio/releases/latest
 
 ## Qué hace
 
-El flujo principal: **grabas una frase cantada con letra → la app te reconoce → arma una canción con tu voz en el estilo que elijas**, lista para usar en tu juego.
+1. **Graba tu voz**: canta tu canción completa o varias frases (hasta 4 minutos), con pequeñas pausas entre frases, y pulsa *Terminar*. La app separa tus frases, detecta cada nota y sílaba y **te reconoce** si tienes un perfil guardado.
+2. **Simulador holográfico**: corte sagital de la cabeza que se mueve en tiempo real con tu voz (pliegues vocales, lengua, mandíbula, labios; tono por YIN y formantes por LPC).
+3. **Perfil y reconocimiento**: perfiles con nombre guardados en el dispositivo, test de rango y tipo de voz, y “¿Quién canta?”.
+4. **Voces del coro**: tu voz modulada (TD-PSOLA) en Soprano, Contralto, Tenor y Bajo.
+5. **Generar canción** (2 o 3 minutos) en 7 estilos: Épico orquestal, Batalla / jefe final, Terror, Fantasía medieval, Chiptune 8-bit, Lo-fi tranquilo y Exploración ambiental.
+   - Estructura completa: Intro → Verso → Estribillo → Verso → Estribillo → Puente → Estribillo → Final, con intensidad distinta en cada parte.
+   - Tus frases son la voz principal: los versos van en el orden en que cantaste y el estribillo se repite; cada sílaba se afina a la tonalidad y a los acordes, y se estira al compás.
+   - Armonías con tu misma voz en los estribillos y coro de fondo.
+   - También hay **loops** de 8, 16 o 32 compases que suenan en bucle sin cortes, para niveles del juego.
+6. **Remix con tu instrumental**: sube una instrumental (por ejemplo, hecha con Gemini) en MP3 o WAV.
+   - La app detecta su **tempo**, el **inicio de cada compás**, la **tonalidad**, los **acordes de cada compás** y sus partes suaves y fuertes.
+   - Canta encima con tu voz grabada: al compás, afinada a sus acordes, con armonías y coro de tu voz en las partes fuertes.
+   - Si algo se detecta mal, se corrige con los botones de tempo (×2 / ÷2), inicio del compás y tonalidad.
 
-1. **Graba tu voz**: canta una frase corta de tu canción (hasta 8 s).
-   - Detecta cada nota/sílaba y corrige errores de octava.
-   - Si tienes un perfil guardado, te **reconoce** al terminar de grabar.
-   - De la misma frase sale el coro de fondo (opcionalmente puedes grabar una “aaa” sostenida para un coro más limpio).
-2. **Simulador holográfico**: corte sagital de una cabeza en estilo holograma, con pliegues vocales, faringe, velo del paladar, lengua, mandíbula y labios. Se mueve en tiempo real con tu voz:
-   - el **tono** (YIN) hace vibrar los pliegues vocales y la glotis (vista superior);
-   - los **formantes F1/F2** (LPC) colocan la lengua y abren la mandíbula;
-   - la **vocal** detectada (A, E, I, O, U) redondea los labios.
-3. **Perfil y reconocimiento**: guarda perfiles con nombre (en el navegador, con tu frase y tu muestra para reutilizarlas otro día), test de rango de 8 s con tipo de voz, y “¿Quién canta?”.
-4. **Voces del coro**: tu voz se modula con **TD-PSOLA** en Soprano, Contralto, Tenor y Bajo, cambiando la nota sin perder tu timbre y desplazando formantes por voz.
-5. **Generar canción** en 7 estilos: Épico orquestal, Batalla / jefe final, Terror, Fantasía medieval, Chiptune 8-bit, Lo-fi tranquilo y Exploración ambiental.
-   - Tu frase es la **voz principal**: se estira al compás y cada sílaba se afina a la tonalidad del estilo, respetando tu melodía y tu letra.
-   - **Armonías** con tu misma voz y letra: una tercera arriba y una sexta abajo.
-   - Coro de fondo, orquesta y batería compuestos para el estilo, con una “variación” (semilla) repetible.
-   - Termina en un **loop perfecto** y se descarga en **WAV**: mezcla, solo voces o solo orquesta.
+Todo se descarga en **WAV**: mezcla, solo voces, o solo orquesta / instrumental.
 
 Todo el audio se procesa en tu navegador; nada se sube a ningún servidor.
 

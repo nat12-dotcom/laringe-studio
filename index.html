@@ -72,16 +72,16 @@
 
     <section class="panel step">
       <header><span class="num">2</span><h2>Graba tu voz</h2></header>
-      <p><b>Frase con letra:</b> canta una frase corta de tu canción (hasta 8 s). Será la voz principal: se afina a la tonalidad del estilo y se le suman armonías con tu misma voz. Al terminar, la app intenta reconocer quién canta.</p>
+      <p><b>Tu canción:</b> canta la letra completa o varias frases (hasta 4 minutos), dejando una pequeña pausa entre frase y frase. Pulsa <b>Terminar</b> cuando acabes. La app separa tus frases, te reconoce y las usa como voz principal de la canción: los versos van en el orden en que cantaste y el estribillo se repite.</p>
       <div class="row">
-        <button id="btnRecPhrase" class="primary rec">Grabar frase · 8 s</button>
-        <button id="btnStopRec" hidden>Terminar ya</button>
-        <button id="btnPlayPhrase">Escuchar frase</button>
+        <button id="btnRecPhrase" class="primary rec">Grabar mi voz</button>
+        <button id="btnStopRec" class="primary" hidden>Terminar</button>
+        <button id="btnPlayPhrase">Escuchar grabación</button>
       </div>
       <div class="prog" id="recProg" hidden><div></div><span></span></div>
       <dl class="facts" id="phraseFacts"></dl>
       <div id="recogOut" class="who" hidden></div>
-      <p class="sub"><b>Nota sostenida (opcional):</b> una “aaa” estable de 3 s da un coro de fondo más limpio. Si no la grabas, el coro sale de tu frase.</p>
+      <p class="sub"><b>Nota sostenida (opcional):</b> una “aaa” estable de 3 s da un coro de fondo más limpio. Si no la grabas, el coro sale de tu grabación.</p>
       <div class="row">
         <button id="btnRecSample" class="rec">Grabar nota sostenida · 3 s</button>
         <button id="btnPlaySample">Escuchar muestra del coro</button>
@@ -126,7 +126,7 @@
 
     <section class="panel step">
       <header><span class="num">5</span><h2>Generar canción</h2></header>
-      <p>Elige el estilo de tu juego. La canción se compone nueva con tu frase como voz principal y tu coro de fondo, y termina en un loop perfecto para sonar en bucle.</p>
+      <p>Elige el estilo. La app compone una canción completa (intro, versos, estribillos, puente y final) con tu voz como voz principal y tu coro de fondo. Para el fondo de un nivel, elige un loop: suena en bucle sin cortes.</p>
       <div class="styles" id="styles" role="radiogroup" aria-label="Estilo musical"></div>
       <div class="opts">
         <label for="keySel">Tonalidad
@@ -134,9 +134,11 @@
         </label>
         <label for="barsSel">Duración
           <select id="barsSel">
-            <option value="8">8 compases</option>
-            <option value="16" selected>16 compases</option>
-            <option value="32">32 compases</option>
+            <option value="song:180" selected>Canción completa · ~3 min</option>
+            <option value="song:120">Canción completa · ~2 min</option>
+            <option value="loop:16">Loop para el juego · 16 compases</option>
+            <option value="loop:32">Loop para el juego · 32 compases</option>
+            <option value="loop:8">Loop corto · 8 compases</option>
           </select>
         </label>
         <label for="bpm">Tempo <output id="bpmOut">auto</output>
@@ -155,14 +157,48 @@
         </label>
       </div>
       <div class="controls">
-        <label class="check"><input type="checkbox" id="usePhrase" disabled> Usar mi frase como voz principal</label>
-        <label class="check"><input type="checkbox" id="phraseHarm" checked> Armonías sobre mi frase (tercera arriba y sexta abajo)</label>
+        <label class="check"><input type="checkbox" id="usePhrase" disabled> Usar mi voz grabada como voz principal</label>
+        <label class="check"><input type="checkbox" id="phraseHarm" checked> Armonías con mi voz en los estribillos</label>
       </div>
       <div class="row">
         <button id="btnGen" class="primary big">Generar canción</button>
       </div>
       <div class="prog" id="genProg" hidden><div></div><span></span></div>
-      <div class="player" id="player" hidden>
+    </section>
+    <section class="panel step">
+      <header><span class="num">6</span><h2>Remix con tu instrumental</h2></header>
+      <p>Sube una instrumental hecha por ti (por ejemplo con Gemini), en MP3 o WAV. La app detecta su tempo, sus compases, la tonalidad, los acordes y qué partes son suaves o fuertes, y canta encima con tu voz grabada: al compás, afinada a sus acordes y con armonías y coro en las partes fuertes.</p>
+      <div class="row">
+        <label class="btn" for="instrIn" tabindex="0">Subir instrumental</label>
+        <input type="file" id="instrIn" accept="audio/*" hidden>
+        <button id="btnPlayInstr">Escuchar instrumental</button>
+      </div>
+      <div class="prog" id="remixProg" hidden><div></div><span></span></div>
+      <p class="status" id="rxStatus">Aún no has subido una instrumental.</p>
+      <dl class="facts" id="instrFacts"></dl>
+      <div id="rxControls" hidden>
+        <div class="opts">
+          <label for="rxKey">Tonalidad
+            <select id="rxKey"></select>
+          </label>
+          <div class="field"><span class="flabel">Tempo</span>
+            <span class="seed"><button id="rxHalf" class="icon" title="La mitad de rápido" aria-label="Tempo a la mitad">÷2</button><output id="rxBpm">—</output><button id="rxDouble" class="icon" title="El doble de rápido" aria-label="Tempo al doble">×2</button></span>
+          </div>
+          <div class="field"><span class="flabel">Inicio del compás</span>
+            <span class="seed"><button id="rxPrev" class="icon" aria-label="Mover el compás un tiempo antes">◀</button><output id="rxShift">auto</output><button id="rxNext" class="icon" aria-label="Mover el compás un tiempo después">▶</button></span>
+          </div>
+        </div>
+        <p class="hint">Si tu voz entra fuera de ritmo, prueba ×2 o ÷2 en el tempo, o mueve el inicio del compás.</p>
+        <label class="check"><input type="checkbox" id="rxBacking" checked> Coro de fondo con mi voz en las partes fuertes</label>
+      </div>
+      <div class="row">
+        <button id="btnRemix" class="primary big" disabled>Crear remix</button>
+      </div>
+    </section>
+
+    <section class="panel step" id="resultStep" hidden>
+      <header><span class="num">♪</span><h2>Tu canción</h2></header>
+      <div class="player" id="player">
         <div class="player-top">
           <button id="btnPlay" class="play" aria-label="Reproducir">▶</button>
           <div id="trackInfo" class="tinfo"></div>
@@ -174,6 +210,7 @@
           <button id="btnDlMusic">Descargar WAV · sin coro</button>
         </div>
       </div>
+      <div class="prog" id="dlProg" hidden><div></div><span></span></div>
     </section>
   </div>
 </main>
@@ -187,6 +224,7 @@
 <script src="js/voice.js"></script>
 <script src="js/head.js"></script>
 <script src="js/music.js"></script>
+<script src="js/remix.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

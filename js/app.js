@@ -6,7 +6,7 @@
 
   const S = {
     ctx: null, mic: null, micSrc: null, analyser: null, proc: null, recBufs: null,
-    sample: null, bank: null, profile: null, profiles: [], phrase: null, phraseRaw: null, stopRec: false,
+    sample: null, bank: null, profile: null, profiles: [], phrases: [], phraseRaw: null, stopRec: false,
     style: 'epico', score: null, track: null, player: null, outAnalyser: null,
     pitchHist: new Array(240).fill(null),
     head: { open: 0.05, front: 0.5, high: 0.5, round: 0, amp: 0, f0: 0, phase: 0 },
@@ -83,7 +83,9 @@
       const iv = setInterval(() => {
         const el = (performance.now() - t0) / 1000;
         bar.style.width = Math.min(100, el / sec * 100) + '%';
-        txt.textContent = `${label} · ${Math.max(0, sec - el).toFixed(1)} s`;
+        txt.textContent = sec > 30
+          ? `${label} · ${fmtTime(el)} de ${fmtTime(sec)} máx. — pulsa “Terminar” al acabar`
+          : `${label} · ${Math.max(0, sec - el).toFixed(1)} s`;
         if (el >= sec || (S.stopRec && el > 1)) {
           clearInterval(iv);
           S.stopRec = false;
@@ -178,31 +180,54 @@
       : 'No detecté canto en la frase. Canta más cerca del micrófono, con voz clara.';
   }
 
-  function setPhrase(raw, sr, label) {
-    const ph = Voice.analyzePhrase(raw, sr, label);
-    S.phrase = ph;
-    S.phraseRaw = { data: ph.data.slice(ph.start, ph.end), sr, label };
+  const progUI = el => {
+    el.hidden = false;
+    const bar = el.querySelector('div'), txt = el.querySelector('span');
+    return (p, msg) => { bar.style.width = (p * 100).toFixed(0) + '%'; txt.textContent = msg; };
+  };
+
+  // Tu grabación (larga o corta) se separa en frases y se prepara para la canción
+  async function setVoiceRecording(raw, sr, label, onP) {
+    const res = await Voice.splitPhrases(raw, sr, onP);
+    if (!res.phrases.length) throw new Error('sin-nota');
+    S.phrases = res.phrases;
+    // audio limpio para escuchar: de la primera a la última frase
+    const first = res.phrases[0], last = res.phrases[res.phrases.length - 1];
+    const a = Math.round(first.t0 * sr), b = Math.min(res.data.length, Math.round(last.t0 * sr) + (last.end));
+    S.phraseRaw = { data: res.data.slice(a, b), sr, label };
     $('#usePhrase').disabled = false;
     $('#usePhrase').checked = true;
-    // si no hay nota sostenida tuya, el coro sale de la frase
-    if (!S.sample || !S.sample.mine) {
-      try {
-        const sm = Voice.makeSample(raw, sr, 'Tu voz (de la frase)');
-        sm.mine = true;
-        setSample(sm);
-      } catch (e) { /* sin tramo estable: se mantiene el coro actual */ }
+    // huella para reconocerte: hasta 30 s de canto
+    const parts = [];
+    let tot = 0;
+    for (const ph of res.phrases) { if (tot > 30 * sr) break; const d = ph.data.subarray(ph.start, ph.end); parts.push(d); tot += d.length; }
+    const cat = new Float32Array(tot);
+    let o = 0; parts.forEach(d => { cat.set(d, o); o += d.length; });
+    S.profile = A.analyzeBuffer(cat, sr);
+    // si no hay nota sostenida tuya, el coro sale de la frase más larga
+    if (!S.sample || !S.sample.mine || S.sample.fromPhrase) {
+      const longest = [...res.phrases].sort((x, y) => y.duration - x.duration);
+      for (const ph of longest.slice(0, 4)) {
+        try {
+          const sm = Voice.makeSample(ph.data.subarray(ph.start, ph.end), sr, 'Tu voz (de tu grabación)');
+          sm.mine = true; sm.fromPhrase = true;
+          setSample(sm);
+          break;
+        } catch (e) { /* esa frase no tiene un tramo estable; se prueba otra */ }
+      }
     }
     renderPhraseFacts();
-    return ph;
   }
 
   function renderPhraseFacts() {
-    const ph = S.phrase;
-    if (!ph) { $('#phraseFacts').innerHTML = ''; return; }
+    const ps = S.phrases;
+    if (!ps.length) { $('#phraseFacts').innerHTML = ''; return; }
+    const sung = ps.reduce((t, p) => t + p.duration, 0);
+    const lo = Math.min(...ps.map(p => p.lo)), hi = Math.max(...ps.map(p => p.hi));
     const rows = [
-      ['Duración', `${ph.duration.toFixed(1)} s`],
-      ['Notas / sílabas', String(ph.segments.length)],
-      ['Rango de la frase', `${A.noteName(ph.lo)} – ${A.noteName(ph.hi)}`],
+      ['Frases', String(ps.length)],
+      ['Canto grabado', fmtTime(sung)],
+      ['Tu rango', `${A.noteName(lo)} – ${A.noteName(hi)}`],
       ['Coro de fondo', S.sample ? S.sample.label : '—'],
     ];
     $('#phraseFacts').innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('');
@@ -213,21 +238,20 @@
     if (!(await startMic())) return;
     S.busy = true;
     const prog = $('#recProg');
-    await countdown(prog, 'Grabando frase');
+    await countdown(prog, 'Grabando');
     $('#btnStopRec').hidden = false;
-    const data = await record(8, prog, 'Canta tu frase');
+    const data = await record(240, prog, 'Canta tu canción');
     $('#btnStopRec').hidden = true;
     try {
-      setPhrase(data, S.ctx.sampleRate, 'Tu frase');
-      const an = A.analyzeBuffer(data, S.ctx.sampleRate);
-      S.profile = an;
+      await setVoiceRecording(data, S.ctx.sampleRate, 'Tu grabación', progUI(prog));
       $('#recogOut').hidden = false;
-      $('#recogOut').innerHTML = recognizeHtml(an);
+      $('#recogOut').innerHTML = recognizeHtml(S.profile);
       drawRange();
-      status($('#micStatus'), 'Frase lista. Elige un estilo en el paso 5 y genera tu canción.', 'ok');
+      status($('#micStatus'), `Listo: ${S.phrases.length} frase${S.phrases.length === 1 ? '' : 's'}. Elige un estilo en el paso 5 y genera tu canción.`, 'ok');
     } catch (e) {
       status($('#micStatus'), phraseError(e), 'err');
     }
+    prog.hidden = true;
     S.busy = false;
   }
 
@@ -262,25 +286,21 @@
     status($('#micStatus'), 'Analizando el audio…');
     try {
       const ab = await ctx.decodeAudioData(await file.arrayBuffer());
-      const n = Math.min(ab.length, ab.sampleRate * 30);
+      const n = Math.min(ab.length, ab.sampleRate * 240);
       const mono = new Float32Array(n);
       for (let c = 0; c < ab.numberOfChannels; c++) {
         const d = ab.getChannelData(c);
         for (let i = 0; i < n; i++) mono[i] += d[i] / ab.numberOfChannels;
       }
-      S.profile = A.analyzeBuffer(mono, ab.sampleRate);
       const name = file.name.replace(/\.[^.]+$/, '').slice(0, 28) || 'Audio subido';
-      let phOk = false;
-      try { setPhrase(mono.subarray(0, Math.min(mono.length, ab.sampleRate * 10)), ab.sampleRate, name); phOk = true; } catch (e) { /* no es una frase usable */ }
-      if (!S.sample || !S.sample.mine || !phOk) {
-        const sm = Voice.makeSample(mono, ab.sampleRate, name);
-        sm.mine = true;
-        setSample(sm);
-      }
+      const prog = $('#recProg');
+      try {
+        await setVoiceRecording(mono, ab.sampleRate, name, progUI(prog));
+      } finally { prog.hidden = true; }
       $('#recogOut').hidden = false;
       $('#recogOut').innerHTML = recognizeHtml(S.profile);
       drawRange();
-      status($('#micStatus'), phOk ? 'Audio cargado como frase principal.' : `Audio cargado como muestra del coro (${A.noteName(A.freqToMidi(S.sample.f0))}).`, 'ok');
+      status($('#micStatus'), `Audio cargado: ${S.phrases.length} frase${S.phrases.length === 1 ? '' : 's'}.`, 'ok');
     } catch (e) {
       status($('#micStatus'), e.message === 'sin-nota' || e.message === 'inestable' ? sampleError(e) : 'No pude leer ese archivo. Prueba con WAV, MP3 u OGG.', 'err');
     }
@@ -363,7 +383,7 @@
       id: Date.now().toString(36), name, date: new Date().toISOString().slice(0, 10),
       f: { ltas: p.ltas, f0Median: p.f0Median, F1: p.F1, F2: p.F2, F3: p.F3, lo: p.lo, hi: p.hi, voiceType: p.voiceType },
       sample: S.sample && S.sample.mine ? Voice.encodeSample(Object.assign({}, S.sample, { label: name })) : null,
-      phrase: S.phraseRaw ? Voice.encodeSample({ data: S.phraseRaw.data, sr: S.phraseRaw.sr, label: 'Frase de ' + name }) : null,
+      phrase: S.phraseRaw ? Voice.encodeSample({ data: S.phraseRaw.data.subarray(0, Math.min(S.phraseRaw.data.length, S.phraseRaw.sr * 25)), sr: S.phraseRaw.sr, label: 'Voz de ' + name }) : null,
     };
     S.profiles = S.profiles.filter(x => x.name !== name).concat(entry);
     if (!persistProfiles()) {
@@ -458,7 +478,8 @@
   function genOptions() {
     return {
       seed: Math.max(1, +$('#seed').value || 1),
-      bars: +$('#barsSel').value,
+      bars: $('#barsSel').value.startsWith('loop:') ? +$('#barsSel').value.slice(5) : 16,
+      song: $('#barsSel').value.startsWith('song:') ? +$('#barsSel').value.slice(5) : null,
       root: $('#keySel').value === '' ? null : +$('#keySel').value,
       bpm: +$('#bpm').value || null,
     };
@@ -469,7 +490,7 @@
       musicGain: +$('#mixMusic').value / 100,
       ensemble: +$('#ens').value,
       parts: activeParts(),
-      phrase: S.phrase && $('#usePhrase').checked ? S.phrase : null,
+      phrases: S.phrases.length && $('#usePhrase').checked ? S.phrases : null,
       phraseHarm: $('#phraseHarm').checked,
     }, extra);
   }
@@ -487,15 +508,11 @@
     const bar = prog.querySelector('div'), txt = prog.querySelector('span');
     const onP = (p, msg) => { bar.style.width = (p * 100).toFixed(0) + '%'; txt.textContent = msg; };
     try {
-      S.score = Music.compose(S.style, genOptions());
-      const res = await Music.render(S.score, S.bank, mixFlags({ choir: true, music: true }), onP);
-      S.track = res;
-      S.stems = {};
-      $('#player').hidden = false;
-      const sc = S.score;
-      $('#trackInfo').innerHTML = `<b>${sc.st.name}</b><br>${Music.keyName(sc)} · ${sc.bpm} bpm · ${sc.bars} compases · ${fmtTime(sc.duration)} · loop perfecto<br>${res.phrase ? `Voz principal: tu frase (${res.phrase.places.length} ${res.phrase.places.length === 1 ? 'vez' : 'veces'}, ${res.phrase.k} ${res.phrase.k > 1 ? 'compases' : 'compás'} cada vez)` : 'Sin frase principal'} · coro: ${escapeHtml(S.sample.label)}`;
-      drawWave();
-      startPlayback();
+      const score = Music.compose(S.style, genOptions());
+      const bank = S.bank;
+      S.renderFn = (flags, cb) => Music.render(score, bank, flags, cb);
+      const res = await S.renderFn(mixFlags({ choir: true, music: true }), onP);
+      showResult(score, res, score.st.name);
     } catch (e) {
       console.error(e);
       txt.textContent = 'Algo falló al generar. Prueba con otra variación o menos compases.';
@@ -507,6 +524,108 @@
     btn.disabled = false;
   }
 
+
+  // Muestra el resultado (canción o remix) en el reproductor
+  function showResult(score, res, title) {
+    S.score = score;
+    S.track = res;
+    S.stems = {};
+    $('#resultStep').hidden = false;
+    const nv = res.vocals ? res.vocals.placements.length : 0;
+    const form = score.song ? score.sections.map(x => x.name).join(' → ') : `loop de ${score.bars} compases`;
+    $('#trackInfo').innerHTML = `<b>${escapeHtml(title)}</b><br>${Music.keyName(score)} · ${score.bpm} bpm · ${fmtTime(res.buffer.duration)} · ${escapeHtml(form)}<br>${nv ? `Tu voz canta en ${nv} momento${nv === 1 ? '' : 's'}` : 'Sin voz principal'}${S.sample ? ' · coro: ' + escapeHtml(S.sample.label) : ''}`;
+    $('#btnDlMusic').textContent = score.remix ? 'Descargar WAV · instrumental' : 'Descargar WAV · sin coro';
+    drawWave();
+    startPlayback();
+    $('#resultStep').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // ---------- remix ----------
+  function rxScore() {
+    const v = $('#rxKey').value;
+    const o = { bpmMul: S.rx.mul, shiftBeats: S.rx.shift };
+    if (v) { const [pcS, mode] = v.split(':'); o.keyPc = +pcS; o.mode = mode; }
+    return Remix.buildScore(S.instr.an, o);
+  }
+
+  function renderRemixFacts() {
+    if (!S.instr) return;
+    let sc;
+    try { sc = rxScore(); } catch (e) { $('#instrFacts').innerHTML = '<div><dt>Aviso</dt><dd>La instrumental es demasiado corta</dd></div>'; return; }
+    S.rxPreview = sc;
+    $('#rxBpm').textContent = `${sc.bpm} bpm`;
+    $('#rxShift').textContent = S.rx.shift ? `${S.rx.shift > 0 ? '+' : ''}${S.rx.shift} tiempo${Math.abs(S.rx.shift) === 1 ? '' : 's'}` : 'auto';
+    const an = S.instr.an;
+    const rows = [
+      ['Instrumental', S.instr.name],
+      ['Duración', fmtTime(an.duration)],
+      ['Tonalidad', Music.keyName(sc) + ($('#rxKey').value ? '' : ' (detectada)')],
+      ['Compases', String(sc.bars)],
+      ['Partes', sc.sections.map(x => x.name.replace(/ \d+$/, '')).join(' · ')],
+    ];
+    $('#instrFacts').innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('');
+  }
+
+  async function loadInstrumental(file) {
+    if (!file || S.busy) return;
+    const ctx = ensureCtx();
+    const prog = $('#remixProg');
+    const onP = progUI(prog);
+    S.busy = true;
+    try {
+      onP(0, 'Abriendo la instrumental…');
+      const ab = await ctx.decodeAudioData(await file.arrayBuffer());
+      const an = await Remix.analyze(ab, onP);
+      S.instr = { buffer: ab, an, name: file.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Instrumental' };
+      S.rx = { mul: 1, shift: 0 };
+      $('#rxKey').value = '';
+      renderRemixFacts();
+      $('#rxControls').hidden = false;
+      $('#btnRemix').disabled = false;
+      status($('#rxStatus'), S.phrases.length ? 'Instrumental lista. Pulsa “Crear remix”.' : 'Instrumental lista. Ahora graba tu voz en el paso 2 y luego pulsa “Crear remix”.', 'ok');
+    } catch (e) {
+      console.error(e);
+      status($('#rxStatus'), e.message === 'corta' ? 'La instrumental es demasiado corta (mínimo unos 10 segundos).' : 'No pude leer ese archivo. Prueba con MP3, WAV u OGG.', 'err');
+    }
+    prog.hidden = true;
+    S.busy = false;
+  }
+
+  async function makeRemix() {
+    if (S.busy || !S.instr) return;
+    if (!S.phrases.length) { status($('#rxStatus'), 'Primero graba tu voz en el paso 2 (o sube una grabación tuya).', 'err'); return; }
+    ensureCtx();
+    stopPlayback();
+    S.busy = true;
+    const btn = $('#btnRemix');
+    btn.disabled = true;
+    const prog = $('#remixProg');
+    const onP = progUI(prog);
+    try {
+      const score = rxScore();
+      const instr = S.instr.buffer, bank = S.bank;
+      S.renderFn = (flags, cb) => Music.renderRemix(score, instr, bank, flags, cb);
+      const res = await S.renderFn(mixFlags({ choir: true, music: true, backing: $('#rxBacking').checked }), onP);
+      showResult(score, res, 'Remix · ' + S.instr.name);
+      status($('#rxStatus'), 'Remix listo. Escúchalo abajo o ajusta tempo, compás o tonalidad y vuelve a crearlo.', 'ok');
+    } catch (e) {
+      console.error(e);
+      status($('#rxStatus'), 'Algo falló al crear el remix. Prueba de nuevo o ajusta el tempo.', 'err');
+    }
+    prog.hidden = true;
+    btn.disabled = false;
+    S.busy = false;
+  }
+
+  function renderRxKeys() {
+    const opts = ['<option value="">Detectada automáticamente</option>'];
+    for (let i = 0; i < 12; i++) {
+      opts.push(`<option value="${i}:ionian">${A.NOTE_NAMES[i]} mayor</option>`);
+      opts.push(`<option value="${i}:aeolian">${A.NOTE_NAMES[i]} menor</option>`);
+    }
+    $('#rxKey').innerHTML = opts.join('');
+  }
+
   function fmtTime(s) { return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`; }
 
   function startPlayback(offset = 0) {
@@ -515,7 +634,8 @@
     stopPlayback();
     const src = ctx.createBufferSource();
     src.buffer = S.track.buffer;
-    src.loop = true;
+    src.loop = !(S.score && S.score.song);
+    src.onended = () => { if (S.player && S.player.src === src) stopPlayback(); };
     src.connect(S.outAnalyser);
     src.start(0, offset);
     S.player = { src, startAt: ctx.currentTime - offset };
@@ -554,7 +674,25 @@
     // marcas de compás
     const sc = S.score;
     c.fillStyle = 'rgba(154,160,196,0.35)';
-    for (let b = 0; b <= sc.bars; b++) c.fillRect(b / sc.bars * w, 0, 1, b % 4 === 0 ? h : 6);
+    const total = S.track.buffer.duration;
+    const off = sc.offset || 0;
+    for (let b = 0; b <= sc.bars; b++) c.fillRect((off + b * sc.barDur) / total * w, 0, 1, b % 4 === 0 ? h * 0.25 : 6);
+    if (sc.song) {
+      c.font = '600 11px "IBM Plex Mono", monospace';
+      sc.sections.forEach((x, i) => {
+        const xx = (off + x.start * sc.barDur) / total * w;
+        c.fillStyle = 'rgba(255,255,255,0.75)';
+        c.fillRect(xx, 0, 1.5, h);
+        c.fillStyle = 'rgba(13,16,32,0.75)';
+        const label = x.name.replace('Estribillo final', 'Estribillo');
+        const tw = c.measureText(label).width;
+        if ((sc.sections[i + 1] ? (off + sc.sections[i + 1].start * sc.barDur) / total * w : w) - xx > tw + 8) {
+          c.fillRect(xx + 2, 2, tw + 6, 15);
+          c.fillStyle = '#e8e6f2';
+          c.fillText(label, xx + 5, 13);
+        }
+      });
+    }
     S.waveImg = c.getImageData(0, 0, cv.width, cv.height);
   }
   function drawPlayhead() {
@@ -575,12 +713,13 @@
     else {
       if (!S.stems[kind]) {
         S.busy = true;
-        const prog = $('#genProg'); prog.hidden = false;
-        const bar = prog.querySelector('div'), txt = prog.querySelector('span');
-        const res = await Music.render(S.score, S.bank, mixFlags(kind === 'choir' ? { music: false } : { choir: false }),
-          (p, m) => { bar.style.width = (p * 100) + '%'; txt.textContent = m; });
-        S.stems[kind] = res.buffer;
-        prog.hidden = true;
+        const prog = $('#dlProg');
+        const extra = kind === 'choir' ? { music: false } : { choir: false };
+        if (S.score.remix) extra.backing = $('#rxBacking').checked;
+        try {
+          const res = await S.renderFn(mixFlags(extra), progUI(prog));
+          S.stems[kind] = res.buffer;
+        } finally { prog.hidden = true; }
         S.busy = false;
       }
       buf = S.stems[kind];
@@ -589,7 +728,7 @@
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     const sname = S.score.styleId + '-' + S.score.seed;
-    a.download = `laringe-${sname}-${{ mix: 'mezcla', choir: 'voces', music: 'orquesta' }[kind]}.wav`;
+    a.download = `laringe-${sname}-${{ mix: 'mezcla', choir: 'voces', music: S.score.remix ? 'instrumental' : 'orquesta' }[kind]}.wav`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -724,7 +863,7 @@
     $('#btnMic').addEventListener('click', () => (S.mic ? stopMic() : startMic()));
     $('#fileIn').addEventListener('change', e => handleFile(e.target.files[0]));
     document.querySelector('label[for=fileIn]').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#fileIn').click(); } });
-    $('#btnExample').addEventListener('click', () => { setSample(Voice.synthExample(44100)); S.phrase = S.phraseRaw = null; $('#usePhrase').checked = false; $('#usePhrase').disabled = true; renderPhraseFacts(); status($('#micStatus'), 'Usando la voz de ejemplo sintética.'); });
+    $('#btnExample').addEventListener('click', () => { setSample(Voice.synthExample(44100)); S.phrases = []; S.phraseRaw = null; $('#usePhrase').checked = false; $('#usePhrase').disabled = true; renderPhraseFacts(); status($('#micStatus'), 'Usando la voz de ejemplo sintética.'); });
     $('#btnRecSample').addEventListener('click', recordSample);
     $('#btnRecPhrase').addEventListener('click', recordPhrase);
     $('#btnStopRec').addEventListener('click', () => { S.stopRec = true; });
@@ -738,18 +877,14 @@
       if (del) { S.profiles = S.profiles.filter(p => p.id !== del.dataset.del); persistProfiles(); renderProfiles(); }
       if (use) {
         const p = S.profiles.find(x => x.id === use.dataset.use);
-        try {
-          if (p.sample) { const sm = Voice.decodeSample(p.sample); sm.mine = true; setSample(sm); }
-          if (p.phrase) {
-            const ph = Voice.decodePhrase(p.phrase);
-            S.phrase = ph; S.phraseRaw = { data: ph.data.slice(ph.start, ph.end), sr: ph.sr, label: ph.label };
-            $('#usePhrase').disabled = false; $('#usePhrase').checked = true;
-            if (!p.sample) { try { const sm = Voice.makeSample(ph.data, ph.sr, 'Voz de ' + p.name); sm.mine = true; setSample(sm); } catch (e2) { /* sin tramo estable */ } }
-          }
-          renderPhraseFacts();
-          status($('#micStatus'), `Usando la voz de ${p.name}.`, 'ok');
-        }
-        catch (err) { status($('#micStatus'), 'No pude cargar la muestra de ese perfil.', 'err'); }
+        (async () => {
+          try {
+            if (p.sample) { const sm = Voice.decodeSample(p.sample); sm.mine = true; setSample(sm); }
+            if (p.phrase) await setVoiceRecording(Voice.decodeRaw(p.phrase), p.phrase.sr, 'Voz de ' + p.name);
+            renderPhraseFacts();
+            status($('#micStatus'), `Usando la voz de ${p.name}.`, 'ok');
+          } catch (err) { status($('#micStatus'), 'No pude cargar la voz de ese perfil.', 'err'); }
+        })();
       }
     });
     $('#ens').addEventListener('input', e => { $('#ensOut').textContent = e.target.value; });
@@ -766,6 +901,15 @@
     $('#mixChoir').addEventListener('input', e => { $('#mixChoirOut').textContent = e.target.value + '%'; });
     $('#mixMusic').addEventListener('input', e => { $('#mixMusicOut').textContent = e.target.value + '%'; });
     $('#btnGen').addEventListener('click', generate);
+    $('#instrIn').addEventListener('change', e => loadInstrumental(e.target.files[0]));
+    document.querySelector('label[for=instrIn]').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#instrIn').click(); } });
+    $('#btnPlayInstr').addEventListener('click', () => { if (S.instr) { stopPlayback(); playBuffer(S.instr.buffer, 0, 1, 0.8); } });
+    $('#btnRemix').addEventListener('click', makeRemix);
+    $('#rxKey').addEventListener('change', renderRemixFacts);
+    $('#rxHalf').addEventListener('click', () => { S.rx.mul = Math.max(0.25, S.rx.mul / 2); renderRemixFacts(); });
+    $('#rxDouble').addEventListener('click', () => { S.rx.mul = Math.min(4, S.rx.mul * 2); renderRemixFacts(); });
+    $('#rxPrev').addEventListener('click', () => { S.rx.shift = (S.rx.shift - 1) % 4; renderRemixFacts(); });
+    $('#rxNext').addEventListener('click', () => { S.rx.shift = (S.rx.shift + 1) % 4; renderRemixFacts(); });
     $('#btnPlay').addEventListener('click', () => (S.player ? stopPlayback() : startPlayback()));
     $('#wave').addEventListener('click', e => {
       if (!S.track) return;
@@ -814,6 +958,7 @@
     renderParts();
     renderStyles();
     renderKeys();
+    renderRxKeys();
     bind();
     loadProfiles();
     try { setSample(Voice.synthExample(44100)); } catch (e) { console.error(e); }

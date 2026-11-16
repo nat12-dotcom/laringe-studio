@@ -1,4 +1,12 @@
-## Laringe Studio 1.0
+## Laringe Studio 1.1
+
+### Novedades
+
+- **Canciones de 2 o 3 minutos** con estructura completa (intro, versos, estribillos, puente y final).
+- **Grabación larga** de hasta 4 minutos: la app separa tus frases y las reparte por la canción.
+- **Remix con tu instrumental**: sube una instrumental (por ejemplo de Gemini) y la app pone tu voz encima, al compás y afinada a sus acordes.
+
+## Sobre Laringe Studio
 
 Graba tu voz cantando, te reconoce y arma una canción con tu voz en el estilo que elijas, para tu videojuego.
 

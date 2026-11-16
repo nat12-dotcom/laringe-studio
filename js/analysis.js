@@ -256,6 +256,6 @@ const Analysis = (() => {
 
   return {
     NOTE_NAMES, VOICE_TYPES, VOWELS, freqToMidi, midiToFreq, noteName, clamp,
-    rms, yin, lpcFormants, vowel, classifyVoice, analyzeBuffer, similarity, median,
+    rms, yin, lpcFormants, vowel, classifyVoice, analyzeBuffer, similarity, median, fftPow, decimate,
   };
 })();

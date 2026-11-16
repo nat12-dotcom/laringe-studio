@@ -297,6 +297,61 @@ const Voice = (() => {
     };
   }
 
+
+  // Separa una grabación larga (hasta varios minutos) en frases usando las pausas.
+  async function splitPhrases(raw, sr, onProgress) {
+    const data = normalize(Float32Array.from(raw));
+    const hop = Math.round(sr * 0.01), win = hop * 3;
+    const n = Math.max(0, Math.floor((data.length - win) / hop));
+    const e = new Float32Array(n);
+    let peak = 0;
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      for (let j = i * hop; j < i * hop + win; j += 2) s += data[j] * data[j];
+      e[i] = Math.sqrt(s / (win / 2));
+      if (e[i] > peak) peak = e[i];
+    }
+    const sorted = Array.from(e).sort((a, b) => a - b);
+    const loud = sorted[Math.floor(sorted.length * 0.85)] || peak;
+    const thr = Math.max(0.004, Math.min(peak * 0.06, loud * 0.1));
+    // zonas con voz; se unen huecos cortos (< 0,35 s) y se descartan ruidos sueltos (< 0,3 s)
+    const runs = [];
+    let a = -1, lastOn = -1;
+    for (let i = 0; i < n; i++) {
+      if (e[i] >= thr) { if (a < 0) a = i; lastOn = i; }
+      else if (a >= 0 && i - lastOn > 35) { runs.push([a, lastOn]); a = -1; }
+    }
+    if (a >= 0) runs.push([a, lastOn]);
+    const chunks = [];
+    const pad = Math.round(0.08 * sr);
+    const maxLen = 12 * sr;
+    for (const [r0, r1] of runs) {
+      if (r1 - r0 < 30) continue;
+      let s0 = Math.max(0, r0 * hop - pad);
+      const s1 = Math.min(data.length, r1 * hop + win + pad);
+      // frases muy largas: se cortan en el punto más bajo de volumen entre 5 y 12 s
+      while (s1 - s0 > maxLen) {
+        const lo = Math.floor((s0 + 5 * sr) / hop), hi = Math.floor((s0 + maxLen) / hop);
+        let best = lo;
+        for (let i = lo; i < hi && i < n; i++) if (e[i] < e[best]) best = i;
+        chunks.push([s0, best * hop + hop]);
+        s0 = best * hop;
+      }
+      chunks.push([s0, s1]);
+    }
+    const phrases = [];
+    for (let k = 0; k < chunks.length; k++) {
+      const [c0, c1] = chunks[k];
+      try {
+        const ph = analyzePhrase(data.subarray(c0, c1), sr, `Frase ${phrases.length + 1}`);
+        ph.t0 = c0 / sr;
+        phrases.push(ph);
+      } catch (err) { /* trozo sin canto: se ignora */ }
+      if (onProgress) { onProgress((k + 1) / chunks.length, `Analizando tu voz: parte ${k + 1} de ${chunks.length}`); await new Promise(r => setTimeout(r, 0)); }
+    }
+    return { phrases, data, sr };
+  }
+
   // Re-afina y estira la frase: cada sílaba va a su nota objetivo, conservando consonantes y letra.
   function renderPhrase(ph, opts) {
     const { stretch = 1, targets, formant = 1, natural = 0.35, vibrato = 0.006, unvoicedGain = 1 } = opts;
@@ -364,5 +419,5 @@ const Voice = (() => {
   const decodeSample = enc => makeSample(decodeRaw(enc), enc.sr, enc.label);
   const decodePhrase = enc => analyzePhrase(decodeRaw(enc), enc.sr, enc.label);
 
-  return { PARTS, Bank, makeSample, renderNote, synthExample, encodeSample, decodeSample, analyzePhrase, renderPhrase, decodePhrase, mulberry };
+  return { PARTS, Bank, makeSample, renderNote, synthExample, encodeSample, decodeSample, analyzePhrase, splitPhrases, renderPhrase, decodePhrase, decodeRaw, mulberry };
 })();

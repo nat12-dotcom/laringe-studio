@@ -4,7 +4,7 @@ root = pathlib.Path(__file__).resolve().parent.parent
 html = (root / 'index.html').read_text(encoding='utf-8')
 css = (root / 'css/style.css').read_text(encoding='utf-8')
 html = html.replace('<link rel="stylesheet" href="css/style.css">', '<style>\n' + css + '\n</style>')
-for name in ['analysis', 'voice', 'head', 'music', 'app']:
+for name in ['analysis', 'voice', 'head', 'music', 'remix', 'app']:
     js = (root / f'js/{name}.js').read_text(encoding='utf-8')
     html = html.replace(f'<script src="js/{name}.js"></script>', '<script>\n' + js + '\n</script>')
 icon = base64.b64encode((root / 'icons/icon-192.png').read_bytes()).decode()

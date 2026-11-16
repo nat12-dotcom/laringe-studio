@@ -5,6 +5,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión a publicar (por ejemplo v1.1.0)'
+        required: true
+        default: 'v1.1.0'
 
 permissions:
   contents: write
@@ -34,10 +39,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="v1.0.0"; fi
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="${{ inputs.version }}"; fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/LaringeStudio-Windows.zip dist/LaringeStudio.html --clobber
           else
             gh release create "$TAG" dist/LaringeStudio-Windows.zip dist/LaringeStudio.html \
-              --title "Laringe Studio ${TAG#v}" --notes-file .github/release-notes.md
+              --title "Laringe Studio ${TAG#v}" --notes-file .github/release-notes.md --target "${GITHUB_SHA}"
           fi
