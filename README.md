@@ -2,6 +2,13 @@
 
 Simulador vocal en el navegador: analiza tu voz, la muestra en una cabeza humana animada (corte sagital), la modula en un coro de cuatro voces y genera música con ese coro para tu videojuego.
 
+## Descargar
+
+Ve a **[Releases](https://github.com/nat12-dotcom/laringe-studio/releases/latest)** y descarga:
+
+- **LaringeStudio-Windows.zip**: app para Windows. Descomprime y abre `Laringe Studio.exe`.
+- **LaringeStudio.html**: la app en un solo archivo; ábrelo con doble clic en Chrome o Edge (cualquier sistema).
+
 ## Qué hace
 
 El flujo principal: **grabas una frase cantada con letra → la app te reconoce → arma una canción con tu voz en el estilo que elijas**, lista para usar en tu juego.
