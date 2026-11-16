@@ -493,7 +493,7 @@
       S.stems = {};
       $('#player').hidden = false;
       const sc = S.score;
-      $('#trackInfo').innerHTML = `<b>${sc.st.name}</b><br>${Music.keyName(sc)} · ${sc.bpm} bpm · ${sc.bars} compases · ${fmtTime(sc.duration)} · loop perfecto<br>${res.phrase ? `Voz principal: tu frase (${res.phrase.places.length} veces, ${res.phrase.k} ${res.phrase.k > 1 ? 'compases' : 'compás'} cada vez)` : 'Sin frase principal'} · coro: ${escapeHtml(S.sample.label)}`;
+      $('#trackInfo').innerHTML = `<b>${sc.st.name}</b><br>${Music.keyName(sc)} · ${sc.bpm} bpm · ${sc.bars} compases · ${fmtTime(sc.duration)} · loop perfecto<br>${res.phrase ? `Voz principal: tu frase (${res.phrase.places.length} ${res.phrase.places.length === 1 ? 'vez' : 'veces'}, ${res.phrase.k} ${res.phrase.k > 1 ? 'compases' : 'compás'} cada vez)` : 'Sin frase principal'} · coro: ${escapeHtml(S.sample.label)}`;
       drawWave();
       startPlayback();
     } catch (e) {

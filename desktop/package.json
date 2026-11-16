@@ -1,0 +1,8 @@
+{
+  "name": "laringe-studio",
+  "productName": "Laringe Studio",
+  "version": "1.0.0",
+  "description": "Graba tu voz, te reconoce y arma canciones con tu voz para tu videojuego.",
+  "main": "main.js",
+  "license": "UNLICENSED"
+}
