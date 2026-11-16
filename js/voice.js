@@ -195,6 +195,149 @@ const Voice = (() => {
     return makeSample(out, sr, 'Voz de ejemplo');
   }
 
+
+  // ---------- Frase con letra ----------
+  // Analiza una frase cantada: tono por cuadro, sílabas/notas y marcas de periodo.
+  function analyzePhrase(raw, sr, label = 'Tu frase') {
+    const data = normalize(Float32Array.from(raw));
+    const N = 2048, hop = 512;
+    const nF = Math.max(0, Math.floor((data.length - N) / hop) + 1);
+    const amp = new Float32Array(nF);
+    let peakA = 0;
+    for (let i = 0; i < nF; i++) { amp[i] = A.rms(data.subarray(i * hop, i * hop + N)); peakA = Math.max(peakA, amp[i]); }
+    // umbral robusto: un golpe de aire o una "s" fuerte no debe tapar el canto
+    const sortedA = Array.from(amp).sort((a, b) => a - b);
+    const loud = sortedA[Math.floor(sortedA.length * 0.8)] || peakA;
+    const thr = Math.max(0.004, Math.min(peakA * 0.08, loud * 0.12));
+    const midi = new Float32Array(nF);
+    for (let i = 0; i < nF; i++) {
+      if (amp[i] < thr) continue;
+      const p = A.yin(data.subarray(i * hop, i * hop + N), sr, 70, 1000);
+      if (p.f0 > 0 && p.clarity > 0.6) midi[i] = A.freqToMidi(p.f0);
+    }
+    // limpia saltos de octava y huecos sueltos
+    const raw0 = Float32Array.from(midi);
+    for (let i = 0; i < nF; i++) {
+      if (!raw0[i]) continue;
+      const nb = [];
+      for (let k = -3; k <= 3; k++) { const j = i + k; if (j >= 0 && j < nF && raw0[j]) nb.push(raw0[j]); }
+      const med = A.median(nb);
+      if (Math.abs(raw0[i] - med) > 5) midi[i] = med;
+    }
+    for (let i = 1; i < nF - 1; i++) if (!midi[i] && midi[i - 1] && midi[i + 1] && amp[i] >= thr) midi[i] = (midi[i - 1] + midi[i + 1]) / 2;
+
+    let first = 0; while (first < nF && amp[first] < thr) first++;
+    let last = nF - 1; while (last > first && amp[last] < thr) last--;
+    if (last - first < 8) throw new Error('corta');
+    let voiced = 0;
+    for (let i = first; i <= last; i++) if (midi[i]) voiced++;
+    if (voiced < 6) throw new Error('sin-nota');
+    const start = Math.max(0, first * hop - Math.round(0.03 * sr));
+    const end = Math.min(data.length, last * hop + N + Math.round(0.05 * sr));
+    const center = i => i * hop + N / 2;
+
+    // segmentos: cada nota/sílaba sonora
+    const segs = [];
+    let cur = null;
+    for (let i = first; i <= last; i++) {
+      const m = midi[i];
+      if (!m) { if (cur) { segs.push(cur); cur = null; } continue; }
+      if (cur && cur.n >= 3) {
+        const mean = cur.sum / cur.n;
+        if (Math.abs(m - mean) > 1.8 && i + 1 <= last && midi[i + 1] && Math.abs(midi[i + 1] - mean) > 1.8) { segs.push(cur); cur = null; }
+      }
+      if (!cur) cur = { f0: i, f1: i, sum: 0, n: 0, ms: [] };
+      cur.f1 = i; cur.sum += m; cur.n++; cur.ms.push(m);
+    }
+    if (cur) segs.push(cur);
+    const segments = segs.filter(x => x.n >= 2).map(x => ({ a: center(x.f0) - hop / 2, b: center(x.f1) + hop / 2, midi: A.median(x.ms), f0i: x.f0, f1i: x.f1 }));
+    if (!segments.length) throw new Error('sin-nota');
+    // corrige errores de octava por sílaba (comparando con la mediana de la frase)
+    const pm = A.median(segments.map(x => x.midi));
+    for (const sg of segments) {
+      for (const sh of [-12, 12]) {
+        if (Math.abs(sg.midi - pm) > 9 && Math.abs(sg.midi + sh - pm) < Math.abs(sg.midi - pm)) {
+          sg.midi += sh;
+          for (let i = sg.f0i; i <= sg.f1i; i++) if (midi[i]) midi[i] += sh;
+        }
+      }
+    }
+    const segOf = new Int16Array(nF).fill(-1);
+    segments.forEach((sg, k) => { for (let i = sg.f0i; i <= sg.f1i; i++) segOf[i] = k; });
+    const frameAt = pos => Math.max(0, Math.min(nF - 1, Math.round((pos - N / 2) / hop)));
+
+    // marcas de periodo (una por ciclo de los pliegues vocales)
+    const marks = [], markF = [];
+    let i = first;
+    while (i <= last) {
+      if (!midi[i]) { i++; continue; }
+      let j = i;
+      while (j + 1 <= last && midi[j + 1]) j++;
+      const s0 = Math.round(center(i) - hop / 2), s1 = center(j) + hop / 2;
+      let T = sr / A.midiToFreq(midi[i]);
+      let best = s0;
+      for (let q = s0; q < s0 + T && q < data.length; q++) if (data[q] > data[best]) best = q;
+      let m = best;
+      while (m < s1) {
+        const fm = midi[frameAt(m)] || midi[i];
+        T = sr / A.midiToFreq(fm);
+        marks.push(m); markF.push(A.midiToFreq(fm));
+        const lo = Math.round(m + 0.85 * T), hi = Math.round(m + 1.15 * T);
+        let b = lo;
+        for (let q = lo; q <= hi && q < data.length; q++) if (data[q] > data[b]) b = q;
+        if (b <= m) break;
+        m = b;
+      }
+      i = j + 1;
+    }
+    const mids = segments.map(x => x.midi);
+    return {
+      data, sr, label, start, end, duration: (end - start) / sr, midi, segments, segOf, marks, markF, frameAt,
+      lo: Math.min(...mids), hi: Math.max(...mids),
+    };
+  }
+
+  // Re-afina y estira la frase: cada sílaba va a su nota objetivo, conservando consonantes y letra.
+  function renderPhrase(ph, opts) {
+    const { stretch = 1, targets, formant = 1, natural = 0.35, vibrato = 0.006, unvoicedGain = 1 } = opts;
+    const sr = ph.sr, src = ph.data, marks = ph.marks;
+    const outLen = Math.ceil((ph.end - ph.start) * stretch) + 1;
+    const out = new Float32Array(outLen);
+    const ug = Math.round(0.006 * sr);
+    let t = 0;
+    while (t < outLen) {
+      const sp = ph.start + t / stretch;
+      const fi = ph.frameAt(sp);
+      const sm = ph.midi[fi], sk = ph.segOf[fi];
+      let step, gl, center, fm = 1, g = 1;
+      if (sm && sk >= 0 && marks.length) {
+        const seg = ph.segments[sk];
+        const f = A.midiToFreq(targets[sk] + (sm - seg.midi) * natural) * (1 + vibrato * Math.sin(2 * Math.PI * 5.3 * t / sr));
+        let lo = 0, hi = marks.length - 1;
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (marks[mid] < sp) lo = mid; else hi = mid; }
+        const k = Math.abs(marks[lo] - sp) < Math.abs(marks[hi] - sp) ? lo : hi;
+        const T0 = sr / ph.markF[k];
+        center = Math.abs(marks[k] - sp) > T0 * 2 ? Math.round(sp) : marks[k];
+        gl = Math.max(8, Math.round(T0 / formant));
+        fm = formant;
+        step = Math.max(8, Math.round(sr / f));
+      } else {
+        center = Math.round(sp); gl = ug; step = ug; g = unvoicedGain;
+      }
+      const w0 = step / gl * g;
+      for (let i = -gl; i < gl; i++) {
+        const o = t + i;
+        if (o < 0 || o >= outLen) continue;
+        const si = center + i * fm, s0 = Math.floor(si);
+        if (s0 < 0 || s0 + 1 >= src.length) continue;
+        const fr = si - s0;
+        out[o] += (src[s0] * (1 - fr) + src[s0 + 1] * fr) * (0.5 + 0.5 * Math.cos(Math.PI * i / gl)) * w0;
+      }
+      t += step;
+    }
+    return out;
+  }
+
   // Serialización compacta para guardar perfiles en el navegador (22 kHz, 16 bits)
   function encodeSample(sample) {
     const target = 22050, ratio = sample.sr / target;
@@ -209,15 +352,17 @@ const Voice = (() => {
     for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
     return { sr: target, b64: btoa(s), label: sample.label };
   }
-  function decodeSample(enc) {
+  function decodeRaw(enc) {
     const bin = atob(enc.b64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const i16 = new Int16Array(bytes.buffer);
     const f = new Float32Array(i16.length);
     for (let i = 0; i < i16.length; i++) f[i] = i16[i] / 32767;
-    return makeSample(f, enc.sr, enc.label);
+    return f;
   }
+  const decodeSample = enc => makeSample(decodeRaw(enc), enc.sr, enc.label);
+  const decodePhrase = enc => analyzePhrase(decodeRaw(enc), enc.sr, enc.label);
 
-  return { PARTS, Bank, makeSample, renderNote, synthExample, encodeSample, decodeSample, mulberry };
+  return { PARTS, Bank, makeSample, renderNote, synthExample, encodeSample, decodeSample, analyzePhrase, renderPhrase, decodePhrase, mulberry };
 })();

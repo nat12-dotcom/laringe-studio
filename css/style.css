@@ -19,6 +19,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: radial-gradient(1200px 700px at 20% -10%, #1d2350 0%, var(--ink) 60%) fixed, var(--ink);
@@ -93,6 +94,8 @@ figcaption { font: 500 0.7rem var(--f-mono); letter-spacing: 0.08em; text-transf
 .step h2 { font-size: 1.25rem; font-weight: 700; }
 .step > p { color: var(--muted); max-width: 65ch; }
 .hint { color: var(--muted); font-size: 0.85rem; }
+.step .sub { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--line); padding-top: 12px; max-width: 65ch; }
+.check input:disabled + * , .check:has(input:disabled) { opacity: 0.55; }
 
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 button, .btn {
@@ -145,7 +148,10 @@ input[type=text], input[type=number], select {
 .plist .pbtns { display: flex; gap: 6px; }
 .plist button { padding: 5px 10px; font-size: 0.82rem; }
 .who { display: grid; gap: 6px; }
-.who .bar { display: grid; grid-template-columns: minmax(70px, 120px) minmax(0, 1fr) 48px; gap: 8px; align-items: center; font-size: 0.88rem; }
+.who .bar { display: flex; gap: 8px; align-items: center; font-size: 0.88rem; width: 100%; }
+.who .bar > span:first-child { flex: 0 0 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .track { flex: 1 1 auto; min-width: 40px; }
+.who .pc { flex: 0 0 44px; }
 .who .track { height: 10px; border-radius: 6px; background: var(--ink); overflow: hidden; }
 .who .track i { display: block; height: 100%; background: var(--cyan); }
 .who .bar.top .track i { background: var(--amber); }

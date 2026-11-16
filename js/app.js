@@ -6,7 +6,7 @@
 
   const S = {
     ctx: null, mic: null, micSrc: null, analyser: null, proc: null, recBufs: null,
-    sample: null, bank: null, profile: null, profiles: [],
+    sample: null, bank: null, profile: null, profiles: [], phrase: null, phraseRaw: null, stopRec: false,
     style: 'epico', score: null, track: null, player: null, outAnalyser: null,
     pitchHist: new Array(240).fill(null),
     head: { open: 0.05, front: 0.5, high: 0.5, round: 0, amp: 0, f0: 0, phase: 0 },
@@ -84,8 +84,9 @@
         const el = (performance.now() - t0) / 1000;
         bar.style.width = Math.min(100, el / sec * 100) + '%';
         txt.textContent = `${label} · ${Math.max(0, sec - el).toFixed(1)} s`;
-        if (el >= sec) {
+        if (el >= sec || (S.stopRec && el > 1)) {
           clearInterval(iv);
+          S.stopRec = false;
           const bufs = S.recBufs; S.recBufs = null;
           const out = new Float32Array(bufs.reduce((n, b) => n + b.length, 0));
           let o = 0; bufs.forEach(b => { out.set(b, o); o += b.length; });
@@ -145,8 +146,10 @@
     await countdown(prog, 'Grabando');
     const data = await record(3, prog, 'Canta “aaa”');
     try {
-      const sm = Voice.makeSample(data, S.ctx.sampleRate, 'Tu voz');
+      const sm = Voice.makeSample(data, S.ctx.sampleRate, 'Tu voz (nota sostenida)');
+      sm.mine = true;
       setSample(sm);
+      renderPhraseFacts();
       S.profile = sm.analysis;
       status($('#micStatus'), `Muestra lista: ${A.noteName(A.freqToMidi(sm.f0))}. Ya puedes generar música con tu voz.`, 'ok');
       drawRange();
@@ -154,6 +157,85 @@
       status($('#micStatus'), sampleError(e), 'err');
     }
     S.busy = false;
+  }
+
+
+  // ---------- reconocimiento ----------
+  function recognizeHtml(an) {
+    if (!S.profiles.length) return '<p>Guarda tu perfil (paso 3) para que la app te reconozca la próxima vez.</p>';
+    if (an.voicedRatio < 0.08) return '<p>No se escuchó voz suficiente para reconocer a nadie.</p>';
+    const ranked = S.profiles.map(p => ({ p, s: A.similarity(an, p.f) })).sort((a, b) => b.s - a.s);
+    const best = ranked[0];
+    const verdict = best.s > 0.72 ? `Reconocí tu voz: <b>${escapeHtml(best.p.name)}</b>.`
+      : best.s > 0.55 ? `Se parece a <b>${escapeHtml(best.p.name)}</b>, pero no es seguro.`
+      : 'No coincide con ningún perfil guardado.';
+    return `<p>${verdict}</p>` + ranked.slice(0, 4).map((x, i) => `<div class="bar${i === 0 ? ' top' : ''}"><span>${escapeHtml(x.p.name)}</span><div class="track"><i style="width:${(x.s * 100).toFixed(0)}%"></i></div><span class="pc">${(x.s * 100).toFixed(0)}%</span></div>`).join('');
+  }
+
+  // ---------- frase ----------
+  function phraseError(e) {
+    return e.message === 'corta' ? 'La frase fue muy corta. Canta al menos un par de segundos.'
+      : 'No detecté canto en la frase. Canta más cerca del micrófono, con voz clara.';
+  }
+
+  function setPhrase(raw, sr, label) {
+    const ph = Voice.analyzePhrase(raw, sr, label);
+    S.phrase = ph;
+    S.phraseRaw = { data: ph.data.slice(ph.start, ph.end), sr, label };
+    $('#usePhrase').disabled = false;
+    $('#usePhrase').checked = true;
+    // si no hay nota sostenida tuya, el coro sale de la frase
+    if (!S.sample || !S.sample.mine) {
+      try {
+        const sm = Voice.makeSample(raw, sr, 'Tu voz (de la frase)');
+        sm.mine = true;
+        setSample(sm);
+      } catch (e) { /* sin tramo estable: se mantiene el coro actual */ }
+    }
+    renderPhraseFacts();
+    return ph;
+  }
+
+  function renderPhraseFacts() {
+    const ph = S.phrase;
+    if (!ph) { $('#phraseFacts').innerHTML = ''; return; }
+    const rows = [
+      ['Duración', `${ph.duration.toFixed(1)} s`],
+      ['Notas / sílabas', String(ph.segments.length)],
+      ['Rango de la frase', `${A.noteName(ph.lo)} – ${A.noteName(ph.hi)}`],
+      ['Coro de fondo', S.sample ? S.sample.label : '—'],
+    ];
+    $('#phraseFacts').innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('');
+  }
+
+  async function recordPhrase() {
+    if (S.busy) return;
+    if (!(await startMic())) return;
+    S.busy = true;
+    const prog = $('#recProg');
+    await countdown(prog, 'Grabando frase');
+    $('#btnStopRec').hidden = false;
+    const data = await record(8, prog, 'Canta tu frase');
+    $('#btnStopRec').hidden = true;
+    try {
+      setPhrase(data, S.ctx.sampleRate, 'Tu frase');
+      const an = A.analyzeBuffer(data, S.ctx.sampleRate);
+      S.profile = an;
+      $('#recogOut').hidden = false;
+      $('#recogOut').innerHTML = recognizeHtml(an);
+      drawRange();
+      status($('#micStatus'), 'Frase lista. Elige un estilo en el paso 5 y genera tu canción.', 'ok');
+    } catch (e) {
+      status($('#micStatus'), phraseError(e), 'err');
+    }
+    S.busy = false;
+  }
+
+  function playRaw(data, sr) {
+    const ctx = ensureCtx();
+    const ab = ctx.createBuffer(1, data.length, sr);
+    ab.copyToChannel(data, 0);
+    playBuffer(ab, 0, 1, 0.8);
   }
 
   function playBuffer(buf, when = 0, rate = 1, gain = 0.8, detune = 0, dest) {
@@ -187,10 +269,18 @@
         for (let i = 0; i < n; i++) mono[i] += d[i] / ab.numberOfChannels;
       }
       S.profile = A.analyzeBuffer(mono, ab.sampleRate);
-      const sm = Voice.makeSample(mono, ab.sampleRate, file.name.replace(/\.[^.]+$/, '').slice(0, 28) || 'Audio subido');
-      setSample(sm);
+      const name = file.name.replace(/\.[^.]+$/, '').slice(0, 28) || 'Audio subido';
+      let phOk = false;
+      try { setPhrase(mono.subarray(0, Math.min(mono.length, ab.sampleRate * 10)), ab.sampleRate, name); phOk = true; } catch (e) { /* no es una frase usable */ }
+      if (!S.sample || !S.sample.mine || !phOk) {
+        const sm = Voice.makeSample(mono, ab.sampleRate, name);
+        sm.mine = true;
+        setSample(sm);
+      }
+      $('#recogOut').hidden = false;
+      $('#recogOut').innerHTML = recognizeHtml(S.profile);
       drawRange();
-      status($('#micStatus'), `Audio cargado. Nota base: ${A.noteName(A.freqToMidi(sm.f0))}.`, 'ok');
+      status($('#micStatus'), phOk ? 'Audio cargado como frase principal.' : `Audio cargado como muestra del coro (${A.noteName(A.freqToMidi(S.sample.f0))}).`, 'ok');
     } catch (e) {
       status($('#micStatus'), e.message === 'sin-nota' || e.message === 'inestable' ? sampleError(e) : 'No pude leer ese archivo. Prueba con WAV, MP3 u OGG.', 'err');
     }
@@ -266,16 +356,19 @@
   }
   function saveProfile() {
     const name = $('#profName').value.trim();
-    const p = S.profile || (S.sample && S.sample.label !== 'Voz de ejemplo' ? S.sample.analysis : null);
+    const p = S.profile || (S.sample && S.sample.mine ? S.sample.analysis : null);
     if (!name) { status($('#micStatus'), 'Escribe un nombre para el perfil.', 'err'); $('#profName').focus(); return; }
-    if (!p || !p.ltas || !p.f0Median) { status($('#micStatus'), 'Primero graba una muestra o haz el test de rango.', 'err'); return; }
+    if (!p || !p.ltas || !p.f0Median) { status($('#micStatus'), 'Primero graba tu frase o haz el test de rango.', 'err'); return; }
     const entry = {
       id: Date.now().toString(36), name, date: new Date().toISOString().slice(0, 10),
       f: { ltas: p.ltas, f0Median: p.f0Median, F1: p.F1, F2: p.F2, F3: p.F3, lo: p.lo, hi: p.hi, voiceType: p.voiceType },
-      sample: S.sample && S.sample.label !== 'Voz de ejemplo' ? Voice.encodeSample(Object.assign({}, S.sample, { label: name })) : null,
+      sample: S.sample && S.sample.mine ? Voice.encodeSample(Object.assign({}, S.sample, { label: name })) : null,
+      phrase: S.phraseRaw ? Voice.encodeSample({ data: S.phraseRaw.data, sr: S.phraseRaw.sr, label: 'Frase de ' + name }) : null,
     };
     S.profiles = S.profiles.filter(x => x.name !== name).concat(entry);
     if (!persistProfiles()) {
+      entry.phrase = null;
+      if (persistProfiles()) { status($('#micStatus'), `Perfil “${name}” guardado sin la frase (no había espacio en el navegador).`, 'ok'); $('#profName').value = ''; renderProfiles(); return; }
       entry.sample = null;
       if (!persistProfiles()) { status($('#micStatus'), 'El navegador no permite guardar datos aquí.', 'err'); return; }
       status($('#micStatus'), `Perfil “${name}” guardado sin la muestra de audio (no había espacio).`, 'ok');
@@ -289,7 +382,7 @@
     ul.innerHTML = S.profiles.map(p => {
       const vt = p.f.voiceType ? p.f.voiceType.name : '—';
       return `<li><div><b>${escapeHtml(p.name)}</b><div class="pmeta">${vt} · ${A.noteName(p.f.lo || 60)}–${A.noteName(p.f.hi || 60)} · ${p.date}</div></div>
-        <div class="pbtns">${p.sample ? `<button data-use="${p.id}">Usar su voz</button>` : ''}<button data-del="${p.id}" aria-label="Borrar perfil ${escapeHtml(p.name)}">Borrar</button></div></li>`;
+        <div class="pbtns">${p.sample || p.phrase ? `<button data-use="${p.id}">Usar su voz</button>` : ''}<button data-del="${p.id}" aria-label="Borrar perfil ${escapeHtml(p.name)}">Borrar</button></div></li>`;
     }).join('');
   }
 
@@ -304,14 +397,7 @@
     const an = A.analyzeBuffer(data, S.ctx.sampleRate);
     const out = $('#whoOut');
     out.hidden = false;
-    if (an.voicedRatio < 0.08) {
-      out.innerHTML = '<p>No se escuchó voz suficiente. Inténtalo otra vez más cerca del micrófono.</p>';
-    } else {
-      const ranked = S.profiles.map(p => ({ p, s: A.similarity(an, p.f) })).sort((a, b) => b.s - a.s);
-      const best = ranked[0];
-      const verdict = best.s > 0.72 ? `Suena como <b>${escapeHtml(best.p.name)}</b>.` : best.s > 0.55 ? `Se parece a <b>${escapeHtml(best.p.name)}</b>, pero no es seguro.` : 'No coincide con ningún perfil guardado.';
-      out.innerHTML = `<p>${verdict}</p>` + ranked.map((x, i) => `<div class="bar${i === 0 ? ' top' : ''}"><span>${escapeHtml(x.p.name)}</span><div class="track"><i style="width:${(x.s * 100).toFixed(0)}%"></i></div><span class="pc">${(x.s * 100).toFixed(0)}%</span></div>`).join('');
-    }
+    out.innerHTML = recognizeHtml(an);
     S.busy = false;
   }
 
@@ -383,6 +469,8 @@
       musicGain: +$('#mixMusic').value / 100,
       ensemble: +$('#ens').value,
       parts: activeParts(),
+      phrase: S.phrase && $('#usePhrase').checked ? S.phrase : null,
+      phraseHarm: $('#phraseHarm').checked,
     }, extra);
   }
 
@@ -405,7 +493,7 @@
       S.stems = {};
       $('#player').hidden = false;
       const sc = S.score;
-      $('#trackInfo').innerHTML = `<b>${sc.st.name}</b><br>${Music.keyName(sc)} · ${sc.bpm} bpm · ${sc.bars} compases · ${fmtTime(sc.duration)} · loop perfecto · coro: ${escapeHtml(S.sample.label)}`;
+      $('#trackInfo').innerHTML = `<b>${sc.st.name}</b><br>${Music.keyName(sc)} · ${sc.bpm} bpm · ${sc.bars} compases · ${fmtTime(sc.duration)} · loop perfecto<br>${res.phrase ? `Voz principal: tu frase (${res.phrase.places.length} veces, ${res.phrase.k} ${res.phrase.k > 1 ? 'compases' : 'compás'} cada vez)` : 'Sin frase principal'} · coro: ${escapeHtml(S.sample.label)}`;
       drawWave();
       startPlayback();
     } catch (e) {
@@ -501,7 +589,7 @@
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     const sname = S.score.styleId + '-' + S.score.seed;
-    a.download = `laringe-${sname}-${{ mix: 'mezcla', choir: 'coro', music: 'orquesta' }[kind]}.wav`;
+    a.download = `laringe-${sname}-${{ mix: 'mezcla', choir: 'voces', music: 'orquesta' }[kind]}.wav`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -636,8 +724,11 @@
     $('#btnMic').addEventListener('click', () => (S.mic ? stopMic() : startMic()));
     $('#fileIn').addEventListener('change', e => handleFile(e.target.files[0]));
     document.querySelector('label[for=fileIn]').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#fileIn').click(); } });
-    $('#btnExample').addEventListener('click', () => { setSample(Voice.synthExample(44100)); status($('#micStatus'), 'Usando la voz de ejemplo sintética.'); });
+    $('#btnExample').addEventListener('click', () => { setSample(Voice.synthExample(44100)); S.phrase = S.phraseRaw = null; $('#usePhrase').checked = false; $('#usePhrase').disabled = true; renderPhraseFacts(); status($('#micStatus'), 'Usando la voz de ejemplo sintética.'); });
     $('#btnRecSample').addEventListener('click', recordSample);
+    $('#btnRecPhrase').addEventListener('click', recordPhrase);
+    $('#btnStopRec').addEventListener('click', () => { S.stopRec = true; });
+    $('#btnPlayPhrase').addEventListener('click', () => { if (S.phraseRaw) playRaw(S.phraseRaw.data, S.phraseRaw.sr); });
     $('#btnPlaySample').addEventListener('click', playSample);
     $('#btnRange').addEventListener('click', rangeTest);
     $('#btnWho').addEventListener('click', whoSings);
@@ -647,12 +738,22 @@
       if (del) { S.profiles = S.profiles.filter(p => p.id !== del.dataset.del); persistProfiles(); renderProfiles(); }
       if (use) {
         const p = S.profiles.find(x => x.id === use.dataset.use);
-        try { setSample(Voice.decodeSample(p.sample)); status($('#micStatus'), `Coro con la voz de ${p.name}.`, 'ok'); }
+        try {
+          if (p.sample) { const sm = Voice.decodeSample(p.sample); sm.mine = true; setSample(sm); }
+          if (p.phrase) {
+            const ph = Voice.decodePhrase(p.phrase);
+            S.phrase = ph; S.phraseRaw = { data: ph.data.slice(ph.start, ph.end), sr: ph.sr, label: ph.label };
+            $('#usePhrase').disabled = false; $('#usePhrase').checked = true;
+            if (!p.sample) { try { const sm = Voice.makeSample(ph.data, ph.sr, 'Voz de ' + p.name); sm.mine = true; setSample(sm); } catch (e2) { /* sin tramo estable */ } }
+          }
+          renderPhraseFacts();
+          status($('#micStatus'), `Usando la voz de ${p.name}.`, 'ok');
+        }
         catch (err) { status($('#micStatus'), 'No pude cargar la muestra de ese perfil.', 'err'); }
       }
     });
     $('#ens').addEventListener('input', e => { $('#ensOut').textContent = e.target.value; });
-    $('#keepTimbre').addEventListener('change', () => { if (S.sample) setSample(S.sample); });
+    $('#keepTimbre').addEventListener('change', () => { if (S.sample) setSample(S.sample); renderPhraseFacts(); });
     $('#btnChord').addEventListener('click', previewChord);
     $('#styles').addEventListener('click', e => {
       const b = e.target.closest('[data-style]');

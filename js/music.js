@@ -251,7 +251,7 @@ const Music = (() => {
   }
 
   // Lista de notas de coro que necesita la partitura (para precalcularlas)
-  function choirPlan(score, parts) {
+  function choirPlan(score, parts, busy = new Set()) {
     const { st, chords, melody, barDur, bars } = score;
     const P = Voice.PARTS;
     const notes = []; // {part, midi, t, dur, kind}
@@ -259,6 +259,8 @@ const Music = (() => {
     const intro = bars >= 8 ? (st.choir === 'hits' || st.choir === 'lead' ? 1 : 2) : 0;
     const add = (part, midi, t, dur, kind = 'sus', extra = {}) => {
       if (!parts[part]) return;
+      // compases con tu frase: el coro deja sitio (sin melodía, golpes ni sopranos)
+      if (busy.has(Math.floor(t / barDur + 1e-6)) && (kind === 'mel' || kind === 'hit' || part === 'S')) return;
       notes.push({ part, midi: clampOct(midi, P[part].range), t, dur, kind, ...extra });
     };
     const melIn = (b0, b1) => melody.filter(n => n.t >= b0 * barDur - 1e-6 && n.t < b1 * barDur - 1e-6);
@@ -309,6 +311,50 @@ const Music = (() => {
     return { notes, lead };
   }
 
+
+  // Coloca tu frase en la canción: la estira al compás y afina cada sílaba a la tonalidad.
+  function planPhrase(score, ph) {
+    const { barDur, bars } = score;
+    let best = null;
+    for (const k of [1, 2, 4, 8]) {
+      if (k > bars) continue;
+      const stretch = k * barDur / ph.duration;
+      const cost = Math.abs(Math.log(stretch));
+      if (!best || cost < best.cost) best = { k, stretch, cost };
+    }
+    const { k, stretch } = best;
+    const period = Math.max(4, k);
+    const intro = bars >= 8 ? (score.styleId === 'batalla' || score.styleId === 'chiptune' ? 1 : 2) : 0;
+    const places = [];
+    for (let b = 0; b + k <= bars; b += period) if (b >= intro) places.push(b);
+    if (!places.length) places.push(0);
+    const scaleSet = MODES[score.mode].map(x => (x + score.root) % 12);
+    const allScale = [];
+    for (let m = 24; m <= 100; m++) if (scaleSet.includes(pc(m))) allScale.push(m);
+    const nearest = (arr, m) => arr.reduce((a, b) => (Math.abs(b - m) < Math.abs(a - m) ? b : a));
+    const p0 = places[0];
+    const lead = [], up = [], low = [];
+    ph.segments.forEach(seg => {
+      const tOut = (seg.a - ph.start) / ph.sr * stretch;
+      const bar = Math.min(bars - 1, p0 + Math.min(k - 1, Math.floor(tOut / barDur)));
+      const ch = score.chords[bar];
+      const segDur = (seg.b - seg.a) / ph.sr * stretch;
+      const chordNear = allScale.filter(x => ch.pcs.includes(pc(x)) && Math.abs(x - seg.midi) <= 1.6);
+      const tgt = segDur > 0.22 && chordNear.length ? nearest(chordNear, seg.midi) : nearest(allScale, seg.midi);
+      const idx = allScale.indexOf(tgt);
+      lead.push(tgt);
+      up.push(allScale[Math.min(allScale.length - 1, idx + 2)]);
+      low.push(allScale[Math.max(0, idx - 5)]);
+    });
+    const busy = new Set();
+    places.forEach(b => { for (let i = 0; i < k; i++) busy.add(b + i); });
+    const events = [];
+    places.forEach(b => ph.segments.forEach((seg, i) => events.push({
+      t: b * barDur + (seg.a - ph.start) / ph.sr * stretch, dur: (seg.b - seg.a) / ph.sr * stretch, midi: lead[i],
+    })));
+    return { k, stretch, places, lead, up, low, busy, events };
+  }
+
   async function prepareBank(bank, plan, onProgress) {
     const need = [];
     const seen = new Set();
@@ -327,7 +373,20 @@ const Music = (() => {
     const flags = Object.assign({ choir: true, music: true, choirGain: 1, musicGain: 1, ensemble: 3, parts: { S: 1, A: 1, T: 1, B: 1 } }, f);
     const sr = 44100, st = score.st;
     const r = Voice.mulberry((score.seed || 1) * 13 + 5);
-    const plan = choirPlan(score, flags.parts);
+    const ph = flags.choir && flags.phrase ? flags.phrase : null;
+    const pp = ph ? planPhrase(score, ph) : null;
+    const plan = choirPlan(score, flags.parts, pp ? pp.busy : undefined);
+    let phraseBufs = null;
+    if (pp) {
+      onProgress && onProgress(0.02, 'Afinando tu frase a la tonalidad…');
+      await new Promise(r => setTimeout(r, 0));
+      const mk = d => { const ab = new AudioBuffer({ length: d.length, numberOfChannels: 1, sampleRate: ph.sr }); ab.copyToChannel(d, 0); return ab; };
+      phraseBufs = { lead: mk(Voice.renderPhrase(ph, { stretch: pp.stretch, targets: pp.lead })) };
+      if (flags.phraseHarm) {
+        phraseBufs.up = mk(Voice.renderPhrase(ph, { stretch: pp.stretch, targets: pp.up, formant: 1.07, unvoicedGain: 0.3, vibrato: 0.009 }));
+        phraseBufs.low = mk(Voice.renderPhrase(ph, { stretch: pp.stretch, targets: pp.low, formant: 0.93, unvoicedGain: 0.3, vibrato: 0.008 }));
+      }
+    }
     if (flags.choir && bank) await prepareBank(bank, plan, onProgress);
     onProgress && onProgress(0.55, 'Mezclando orquesta y coro…');
     await new Promise(r => setTimeout(r, 0));
@@ -468,6 +527,26 @@ const Music = (() => {
       }
     }
 
+
+    // tu frase: voz principal + armonías
+    if (pp && phraseBufs) {
+      const vbus = ctx.createGain(); vbus.gain.value = flags.choirGain;
+      vbus.connect(master);
+      const vs = ctx.createGain(); vs.gain.value = 0.28; vbus.connect(vs).connect(reverb);
+      const layers = [['lead', 0, 0.95], ['up', 0.38, 0.42], ['low', -0.38, 0.42]];
+      for (const b of pp.places) {
+        for (const [name, panV, gv] of layers) {
+          const buf = phraseBufs[name];
+          if (!buf) continue;
+          const src = ctx.createBufferSource(); src.buffer = buf;
+          const g = ctx.createGain(); g.gain.value = gv;
+          const pan = ctx.createStereoPanner(); pan.pan.value = panV;
+          src.connect(g).connect(pan).connect(vbus);
+          src.start(b * barDur + (name === 'lead' ? 0 : 0.012));
+        }
+      }
+    }
+
     onProgress && onProgress(0.7, 'Renderizando audio…');
     const rendered = await ctx.startRendering();
     // loop perfecto: la cola de reverberación se suma al principio
@@ -484,7 +563,9 @@ const Music = (() => {
     const g = peak > 0 ? Math.min(4, 0.92 / peak) : 1;
     chans.forEach((d, ch) => { for (let i = 0; i < L; i++) d[i] *= g; out.copyToChannel(d, ch); });
     onProgress && onProgress(1, 'Listo');
-    return { buffer: out, lead: plan.lead, notes: plan.notes };
+    let lead = plan.lead;
+    if (pp) lead = plan.lead.filter(e => !pp.busy.has(Math.floor(e.t / barDur + 1e-6))).concat(pp.events).sort((a, b) => a.t - b.t);
+    return { buffer: out, lead, notes: plan.notes, phrase: pp };
   }
 
   function keyName(score) {

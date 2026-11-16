@@ -61,19 +61,27 @@
     </section>
 
     <section class="panel step">
-      <header><span class="num">2</span><h2>Muestra para el coro</h2></header>
-      <p>Canta una <b>“aaa”</b> (o “ooo”) sostenida y estable durante 3 segundos, en una nota cómoda. Con esa muestra se crean todas las voces.</p>
+      <header><span class="num">2</span><h2>Graba tu voz</h2></header>
+      <p><b>Frase con letra:</b> canta una frase corta de tu canción (hasta 8 s). Será la voz principal: se afina a la tonalidad del estilo y se le suman armonías con tu misma voz. Al terminar, la app intenta reconocer quién canta.</p>
       <div class="row">
-        <button id="btnRecSample" class="primary rec">Grabar muestra · 3 s</button>
-        <button id="btnPlaySample">Escuchar muestra</button>
+        <button id="btnRecPhrase" class="primary rec">Grabar frase · 8 s</button>
+        <button id="btnStopRec" hidden>Terminar ya</button>
+        <button id="btnPlayPhrase">Escuchar frase</button>
       </div>
       <div class="prog" id="recProg" hidden><div></div><span></span></div>
+      <dl class="facts" id="phraseFacts"></dl>
+      <div id="recogOut" class="who" hidden></div>
+      <p class="sub"><b>Nota sostenida (opcional):</b> una “aaa” estable de 3 s da un coro de fondo más limpio. Si no la grabas, el coro sale de tu frase.</p>
+      <div class="row">
+        <button id="btnRecSample" class="rec">Grabar nota sostenida · 3 s</button>
+        <button id="btnPlaySample">Escuchar muestra del coro</button>
+      </div>
       <dl class="facts" id="sampleFacts"></dl>
     </section>
 
     <section class="panel step">
       <header><span class="num">3</span><h2>Perfil y reconocimiento</h2></header>
-      <p>El test de rango mide tu nota más grave y más aguda y clasifica tu tipo de voz. Guarda el perfil para que la app reconozca tu voz después.</p>
+      <p>Guarda tu perfil con tu nombre: así la app te reconoce cada vez que grabas, y puedes volver a usar tu voz otro día. El test de rango mide tu nota más grave y más aguda y tu tipo de voz.</p>
       <div class="row">
         <button id="btnRange">Test de rango · 8 s</button>
         <button id="btnWho">¿Quién canta? · 3 s</button>
@@ -107,8 +115,8 @@
     </section>
 
     <section class="panel step">
-      <header><span class="num">5</span><h2>Generar música</h2></header>
-      <p>Elige el estilo de tu juego. Cada pieza se compone nueva y termina en un loop perfecto, listo para sonar en bucle.</p>
+      <header><span class="num">5</span><h2>Generar canción</h2></header>
+      <p>Elige el estilo de tu juego. La canción se compone nueva con tu frase como voz principal y tu coro de fondo, y termina en un loop perfecto para sonar en bucle.</p>
       <div class="styles" id="styles" role="radiogroup" aria-label="Estilo musical"></div>
       <div class="opts">
         <label for="keySel">Tonalidad
@@ -136,8 +144,12 @@
           <input type="range" id="mixMusic" min="0" max="150" value="100">
         </label>
       </div>
+      <div class="controls">
+        <label class="check"><input type="checkbox" id="usePhrase" disabled> Usar mi frase como voz principal</label>
+        <label class="check"><input type="checkbox" id="phraseHarm" checked> Armonías sobre mi frase (tercera arriba y sexta abajo)</label>
+      </div>
       <div class="row">
-        <button id="btnGen" class="primary big">Generar música</button>
+        <button id="btnGen" class="primary big">Generar canción</button>
       </div>
       <div class="prog" id="genProg" hidden><div></div><span></span></div>
       <div class="player" id="player" hidden>
@@ -148,7 +160,7 @@
         <canvas id="wave"></canvas>
         <div class="row">
           <button id="btnDlMix">Descargar WAV · mezcla</button>
-          <button id="btnDlChoir">Descargar WAV · solo coro</button>
+          <button id="btnDlChoir">Descargar WAV · solo voces</button>
           <button id="btnDlMusic">Descargar WAV · sin coro</button>
         </div>
       </div>
