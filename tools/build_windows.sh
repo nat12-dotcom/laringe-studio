@@ -10,6 +10,8 @@ mkdir -p "$OUT"
 unzip -q "$ZIP" -d "$OUT"
 mv "$OUT/electron.exe" "$OUT/Laringe Studio.exe"
 rm -f "$OUT/resources/default_app.asar"
+# solo los idiomas que hacen falta (reduce el tamaño)
+find "$OUT/locales" -name '*.pak' ! -name 'es.pak' ! -name 'es-419.pak' ! -name 'en-US.pak' -delete
 APP="$OUT/resources/app"
 mkdir -p "$APP/js" "$APP/css" "$APP/icons"
 cp "$ROOT/desktop/main.js" "$ROOT/desktop/package.json" "$APP/"

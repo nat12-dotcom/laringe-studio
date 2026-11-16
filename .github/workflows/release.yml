@@ -1,0 +1,43 @@
+name: Publicar versión
+
+# Al subir una etiqueta vX.Y.Z se arma la app y se publica en Releases.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_VERSION: 33.4.11
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar Electron para Windows y verificar su firma
+        run: |
+          V=$ELECTRON_VERSION
+          curl -fsSL -o electron.zip "https://github.com/electron/electron/releases/download/v$V/electron-v$V-win32-x64.zip"
+          curl -fsSL -o SHASUMS256.txt "https://github.com/electron/electron/releases/download/v$V/SHASUMS256.txt"
+          grep " \*\?electron-v$V-win32-x64.zip$" SHASUMS256.txt | awk '{print $1"  electron.zip"}' | sha256sum -c -
+
+      - name: Armar archivo único y app de Windows
+        run: |
+          python3 tools/build_single.py
+          bash tools/build_windows.sh electron.zip
+
+      - name: Publicar en Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="v1.0.0"; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/LaringeStudio-Windows.zip dist/LaringeStudio.html --clobber
+          else
+            gh release create "$TAG" dist/LaringeStudio-Windows.zip dist/LaringeStudio.html \
+              --title "Laringe Studio ${TAG#v}" --notes-file .github/release-notes.md
+          fi

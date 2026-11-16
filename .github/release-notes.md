@@ -1,0 +1,20 @@
+## Laringe Studio 1.0
+
+Graba tu voz cantando, te reconoce y arma una canción con tu voz en el estilo que elijas, para tu videojuego.
+
+### Descarga
+
+- **LaringeStudio-Windows.zip** — app para Windows. Descomprime la carpeta y abre `Laringe Studio.exe`. Si Windows muestra “Windows protegió su PC”, pulsa *Más información* → *Ejecutar de todas formas* (la app no está firmada con un certificado de pago).
+- **LaringeStudio.html** — la app en un solo archivo. Descárgalo y ábrelo con doble clic en Chrome o Edge. Funciona en cualquier sistema.
+
+Cuando lo pida, permite el micrófono.
+
+### Qué incluye
+
+- Simulador holográfico de la cabeza y las cuerdas vocales, en tiempo real con tu voz.
+- Grabación de una frase con letra: afinada a la tonalidad, con armonías de tu misma voz.
+- Reconocimiento de voz con perfiles guardados.
+- 7 estilos: Épico orquestal, Batalla / jefe final, Terror, Fantasía medieval, Chiptune 8-bit, Lo-fi tranquilo y Exploración ambiental.
+- Exportación WAV en loop perfecto: mezcla, solo voces o solo orquesta.
+
+Todo el audio se procesa en tu computadora; nada se sube a internet.
