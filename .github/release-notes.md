@@ -1,6 +1,10 @@
-## Laringe Studio 1.2
+## Laringe Studio 1.3
 
 ### Novedades
+
+- **Generador de efectos de sonido (paso 7):** describe el sonido (“rugido de dragón gigante”, “cueva oscura con goteo”, “moneda 8-bit”) y la app crea tres variaciones. Más de 40 tipos para jefes, escenarios (en loop) y el juego en general; las criaturas pueden hacerse con tu propia voz.
+
+### En la versión 1.2
 
 - **Grabación más limpia:** reducción de ruido de fondo, filtro de golpes y zumbidos, grabación sin cortes y avisos si la voz satura o queda baja.
 - **Voz modulada más natural:** menos aspereza y transiciones suaves entre notas.

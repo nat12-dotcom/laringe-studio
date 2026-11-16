@@ -25,6 +25,12 @@ Ve a **[Releases](https://github.com/nat12-dotcom/laringe-studio/releases/latest
    - Canta encima con tu voz grabada: al compás, afinada a sus acordes, con armonías y coro de tu voz en las partes fuertes.
    - Si algo se detecta mal, se corrige con los botones de tempo (×2 / ÷2), inicio del compás y tonalidad.
 
+7. **Efectos de sonido para tu juego**: escribe lo que necesitas (“rugido de dragón gigante y enojado”, “cueva oscura con goteo”, “moneda 8-bit”) y la app crea tres variaciones para elegir.
+   - Más de 40 tipos: jefes y criaturas (rugido, gruñido, chillido, risa malvada, ladrido, aparición, derrota, pisotón), escenarios en loop sin cortes (cueva, bosque, lluvia, viento, fuego, río, lava, trueno) y sonidos de juego (espada, explosión, metal, golpe, whoosh, magia, curación, moneda, salto, láser, disparo, subir de nivel, daño, game over, victoria, puerta, pasos, menú, portal, electricidad, alarma, latido, fantasma, robot, campana).
+   - Entiende cómo debe sonar: *gigante / pequeño, lejano, fuerte / suave, oscuro, mágico, eléctrico, metálico, de hielo, de fuego, 8-bit* y duraciones como “10 segundos”.
+   - Las criaturas y jefes pueden hacerse **con tu propia voz**, transformada en monstruo.
+   - Cada sonido se descarga en WAV. Son sonidos sintetizados con recetas de diseño sonoro (no una IA generativa): los efectos típicos de videojuego salen bien; algo muy específico y realista sale aproximado.
+
 Todo se descarga en **WAV**: mezcla, solo voces, o solo orquesta / instrumental.
 
 Todo el audio se procesa en tu navegador; nada se sube a ningún servidor.

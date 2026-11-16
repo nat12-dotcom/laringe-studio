@@ -1,9 +1,9 @@
 /* Laringe Studio — modo sin conexión.
  * Guarda la app en el dispositivo; al haber internet busca la versión nueva. */
-const VERSION = 'laringe-v6';
+const VERSION = 'laringe-v7';
 const APP = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
-  './js/analysis.js', './js/voice.js', './js/head.js', './js/music.js', './js/remix.js', './js/app.js',
+  './js/analysis.js', './js/voice.js', './js/head.js', './js/music.js', './js/remix.js', './js/sfx.js', './js/app.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-512-maskable.png', './icons/apple-touch-icon.png',
 ];
 

@@ -694,10 +694,108 @@
     $('#rxKey').innerHTML = opts.join('');
   }
 
+
+  // ---------- efectos de sonido ----------
+  const SFX_EXAMPLES = {
+    'Jefes y criaturas': ['rugido de dragón gigante', 'gruñido de orco furioso', 'chillido de araña gigante', 'risa malvada del hechicero', 'aparición del jefe final', 'derrota del jefe', 'pisotón de gólem gigante', 'ladrido de cerbero'],
+    'Escenarios (loop)': ['cueva oscura con goteo', 'bosque con pájaros', 'lluvia suave', 'tormenta de viento', 'hoguera', 'río tranquilo', 'volcán de lava', 'trueno lejano'],
+    'Juego': ['espada', 'explosión', 'choque de escudo metálico', 'puñetazo', 'flecha rápida', 'hechizo mágico', 'curación', 'moneda 8-bit', 'salto 8-bit', 'disparo láser', 'pistola', 'subir de nivel', 'recibir daño', 'game over', 'victoria', 'puerta que cruje', 'pasos', 'click de menú', 'portal', 'electricidad', 'alarma', 'latido de corazón', 'fantasma', 'robot', 'campana'],
+  };
+  let sfxCount = 0;
+
+  function renderSfxCats() {
+    $('#sfxCats').innerHTML = Object.entries(SFX_EXAMPLES).map(([cat, list]) =>
+      `<div class="sfx-cat"><span>${cat}</span>${list.map(t => `<button type="button" class="chip" data-sfx="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('')}</div>`).join('');
+  }
+
+  function stopSfx() {
+    if (S.sfxSrc) { try { S.sfxSrc.stop(); } catch (e) { /* ya parado */ } }
+    if (S.sfxBtn) { S.sfxBtn.textContent = '▶'; S.sfxBtn.setAttribute('aria-label', 'Escuchar'); }
+    S.sfxSrc = S.sfxBtn = null;
+  }
+
+  function drawMini(cv, buf) {
+    const dpr = window.devicePixelRatio || 1, w = cv.clientWidth || 300, h = cv.clientHeight || 34;
+    cv.width = w * dpr; cv.height = h * dpr;
+    const c = cv.getContext('2d'); c.scale(dpr, dpr);
+    const d = buf.getChannelData(0), step = Math.ceil(d.length / w);
+    c.fillStyle = '#6fd6ff';
+    for (let x = 0; x < w; x++) {
+      let mx = 0;
+      for (let i = x * step; i < (x + 1) * step && i < d.length; i += 8) mx = Math.max(mx, Math.abs(d[i]));
+      c.fillRect(x, h / 2 - mx * h / 2, 1, Math.max(1, mx * h));
+    }
+  }
+
+  async function createSfx(text) {
+    text = (text || '').trim();
+    if (!text || S.sfxBusy) return;
+    ensureCtx();
+    const p = SFX.parse(text);
+    if (!p.recipe) {
+      status($('#sfxStatus'), `No reconocí “${text}”. Prueba con palabras como: rugido, gruñido, explosión, espada, magia, moneda, salto, láser, cueva, bosque, lluvia, fuego, viento, puerta, pasos o alarma.`, 'err');
+      return;
+    }
+    S.sfxBusy = true;
+    $('#btnSfx').disabled = true;
+    const onP = progUI($('#sfxProg'));
+    const useVoice = $('#sfxVoice').checked && S.phrases.length ? S.phrases : null;
+    const base = 1 + Math.floor(Math.random() * 90000);
+    const made = [];
+    try {
+      for (let v = 0; v < 3; v++) {
+        onP(v / 3, `Creando variación ${v + 1} de 3…`);
+        const r = await SFX.generate(text, { seed: base + v, voice: useVoice });
+        made.push(r);
+      }
+      const list = $('#sfxList');
+      made.reverse().forEach((r, i) => {
+        const n = ++sfxCount, vnum = 3 - i;
+        const li = document.createElement('li');
+        li.className = 'sfx-item';
+        li.innerHTML = `<button class="play" aria-label="Escuchar">▶</button>
+          <div class="meta"><b>${escapeHtml(text)} · v${vnum}</b><small>${escapeHtml(r.desc)} · ${r.buffer.duration.toFixed(1)} s${r.loop ? ' · loop' : ''}${r.usedVoice ? ' · con tu voz' : ''}</small><canvas></canvas></div>
+          <button class="dl">WAV</button>`;
+        list.prepend(li);
+        drawMini(li.querySelector('canvas'), r.buffer);
+        const play = li.querySelector('.play');
+        play.addEventListener('click', () => {
+          if (S.sfxBtn === play) { stopSfx(); return; }
+          stopSfx(); stopPlayback();
+          const src = S.ctx.createBufferSource();
+          src.buffer = r.buffer; src.loop = r.loop;
+          src.connect(S.outAnalyser); src.start();
+          src.onended = () => { if (S.sfxSrc === src) stopSfx(); };
+          S.sfxSrc = src; S.sfxBtn = play;
+          play.textContent = '■'; play.setAttribute('aria-label', 'Detener');
+        });
+        li.querySelector('.dl').addEventListener('click', () => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(Music.toWav(r.buffer));
+          const slug = SFX.parse(text).recipe.id.normalize('NFD').replace(/[^a-z0-9]/gi, '');
+          a.download = `sfx-${slug}-${n}${r.loop ? '-loop' : ''}.wav`;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        });
+      });
+      while (list.children.length > 30) list.lastElementChild.remove();
+      const first = made[made.length - 1];
+      status($('#sfxStatus'), `Listo: ${first.desc}. Tres variaciones abajo${first.loop ? ' (en loop)' : ''}${first.usedVoice ? ', hechas con tu voz' : ''}.`, 'ok');
+      list.firstElementChild.querySelector('.play').click();
+    } catch (e) {
+      console.error(e);
+      status($('#sfxStatus'), 'Algo falló al crear el sonido. Prueba con otra descripción.', 'err');
+    }
+    $('#sfxProg').hidden = true;
+    $('#btnSfx').disabled = false;
+    S.sfxBusy = false;
+  }
+
   function fmtTime(s) { return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`; }
 
   function startPlayback(offset = 0) {
     if (!S.track) return;
+    if (typeof stopSfx === 'function') stopSfx();
     const ctx = ensureCtx();
     stopPlayback();
     const src = ctx.createBufferSource();
@@ -973,6 +1071,8 @@
     document.querySelector('label[for=instrIn]').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#instrIn').click(); } });
     $('#btnPlayInstr').addEventListener('click', () => { if (S.instr) { stopPlayback(); playBuffer(S.instr.buffer, 0, 1, 0.8); } });
     $('#btnRemix').addEventListener('click', makeRemix);
+    $('#sfxForm').addEventListener('submit', e => { e.preventDefault(); createSfx($('#sfxText').value); });
+    $('#sfxCats').addEventListener('click', e => { const b = e.target.closest('[data-sfx]'); if (b) { $('#sfxText').value = b.dataset.sfx; createSfx(b.dataset.sfx); } });
     $('#rxKey').addEventListener('change', renderRemixFacts);
     $('#rxHalf').addEventListener('click', () => { S.rx.mul = Math.max(0.25, S.rx.mul / 2); renderRemixFacts(); });
     $('#rxDouble').addEventListener('click', () => { S.rx.mul = Math.min(4, S.rx.mul * 2); renderRemixFacts(); });
@@ -1027,6 +1127,7 @@
     renderStyles();
     renderKeys();
     renderRxKeys();
+    renderSfxCats();
     bind();
     loadProfiles();
     try { setSample(Voice.synthExample(44100)); } catch (e) { console.error(e); }
